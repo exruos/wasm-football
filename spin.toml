@@ -1,0 +1,21 @@
+spin_manifest_version = 2
+
+[application]
+name = "football"
+version = "0.1.0"
+authors = ["exruos <115374714+exruos@users.noreply.github.com>"]
+description = "Get football player information"
+
+[[trigger.http]]
+route = "/..."
+component = "http-rust"
+
+[component.http-rust]
+environment = { DB_URL = "host=localhost port=5438 user=postgres password=postgres dbname=postgres" }
+source = "http-rust/target/wasm32-wasip1/release/http_rust.wasm"
+allowed_outbound_hosts = ["postgres://localhost:5438"]
+
+[component.http-rust.build]
+command = "cargo build --target wasm32-wasip1 --release"
+workdir = "http-rust"
+watch = ["src/**/*.rs", "Cargo.toml"]
