@@ -13,13 +13,13 @@ const DB_URL_ENV: &str = "DB_URL";
 fn handle_request(req: Request) -> Response {
     let mut router = Router::new();
 
-    router.get("/players/:id", handle_get_player);
-    router.get("/players/record/:id", handle_get_player_record);
+    router.get("/players/:id", get_player_by_id);
+    router.get("/players/record/:id", get_player_record_by_id);
 
     router.handle(req)
 }
 
-fn handle_get_player(_req: Request, params: Params) -> Result<Response> {
+fn get_player_by_id(_req: Request, params: Params) -> Result<Response> {
     let address = std::env::var(DB_URL_ENV)?;
     let conn = Connection::open(&address)?;
 
@@ -41,7 +41,7 @@ fn handle_get_player(_req: Request, params: Params) -> Result<Response> {
     }
 }
 
-fn handle_get_player_record(_req: Request, params: Params) -> Result<Response> {
+fn get_player_record_by_id(_req: Request, params: Params) -> Result<Response> {
     let address = std::env::var(DB_URL_ENV)?;
     let conn = Connection::open(&address)?;
 

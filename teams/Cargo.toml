@@ -1,5 +1,5 @@
 [package]
-name = "http-rust"
+name = "teams"
 authors = ["exruos <115374714+exruos@users.noreply.github.com>"]
 description = ""
 version = "0.1.0"

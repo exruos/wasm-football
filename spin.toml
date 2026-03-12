@@ -7,15 +7,45 @@ authors = ["exruos <115374714+exruos@users.noreply.github.com>"]
 description = "Get football player information"
 
 [[trigger.http]]
-route = "/..."
-component = "http-rust"
+route = "/players/..."
+component = "players"
 
-[component.http-rust]
+[component.players]
 environment = { DB_URL = "host=localhost port=5438 user=postgres password=postgres dbname=postgres" }
-source = "http-rust/target/wasm32-wasip1/release/http_rust.wasm"
+source = "players/target/wasm32-wasip1/release/players.wasm"
 allowed_outbound_hosts = ["postgres://localhost:5438"]
 
-[component.http-rust.build]
+[component.players.build]
 command = "cargo build --target wasm32-wasip1 --release"
-workdir = "http-rust"
+workdir = "players"
+watch = ["src/**/*.rs", "Cargo.toml"]
+
+
+[[trigger.http]]
+route = "/teams/..."
+component = "teams"
+
+[component.teams]
+environment = { DB_URL = "host=localhost port=5438 user=postgres password=postgres dbname=postgres" }
+source = "teams/target/wasm32-wasip1/release/teams.wasm"
+allowed_outbound_hosts = ["postgres://localhost:5438"]
+
+[component.teams.build]
+command = "cargo build --target wasm32-wasip1 --release"
+workdir = "teams"
+watch = ["src/**/*.rs", "Cargo.toml"]
+
+
+[[trigger.http]]
+route = "/match/..."
+component = "match"
+
+[component.match]
+environment = { DB_URL = "host=localhost port=5438 user=postgres password=postgres dbname=postgres" }
+source = "match/target/wasm32-wasip1/release/match.wasm"
+allowed_outbound_hosts = ["postgres://localhost:5438", "http://self"]
+
+[component.match.build]
+command = "cargo build --target wasm32-wasip1 --release"
+workdir = "match"
 watch = ["src/**/*.rs", "Cargo.toml"]
