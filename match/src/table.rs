@@ -16,7 +16,6 @@ struct TeamStatistics {
 }
 
 impl TeamStatistics {
-    #[allow(dead_code)]
     fn record_match(&mut self, scored: i32, conceded: i32) {
         self.goals_scored += scored;
         self.goals_conceded += conceded;
@@ -75,39 +74,10 @@ pub fn build_result_table(matches: &[Match]) -> Vec<ResultTableRow> {
 
     for m in matches {
         if let (Some(home_goals), Some(away_goals)) = (m.home_team_goal, m.away_team_goal) {
-            // 1. Update Home Team
-            {
-                let home = team_stats.entry(m.home_team_id).or_default();
-                home.goals_scored += home_goals;
-                home.goals_conceded += away_goals;
-
-                if home_goals > away_goals {
-                    home.wins += 1;
-                    home.points += POINTS_FOR_WIN;
-                } else if home_goals == away_goals {
-                    home.draws += 1;
-                    home.points += POINTS_FOR_DRAW;
-                } else {
-                    home.losses += 1;
-                }
-            }
-
-            // 2. Update Away Team
-            {
-                let away = team_stats.entry(m.away_team_id).or_default();
-                away.goals_scored += away_goals;
-                away.goals_conceded += home_goals;
-
-                if away_goals > home_goals {
-                    away.wins += 1;
-                    away.points += POINTS_FOR_WIN;
-                } else if away_goals == home_goals {
-                    away.draws += 1;
-                    away.points += POINTS_FOR_DRAW;
-                } else {
-                    away.losses += 1;
-                }
-            }
+            // Update Home Team
+            team_stats.entry(m.home_team_id).or_default().record_match(home_goals, away_goals);
+            // Update Away Team
+            team_stats.entry(m.away_team_id).or_default().record_match(away_goals, home_goals);
         }
     }
 
