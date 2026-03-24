@@ -75,12 +75,18 @@ pub struct PlayerLineup {
     pub player11: Option<i32>,
 }
 
-// pub struct MatchForResultTable {
-//     pub home_team_id: i32,
-//     pub away_team_id: i32,
-//     pub home_team_goal: Option<i32>,
-//     pub away_team_goal: Option<i32>,
-// }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultTableRowResource {
+    pub team_id: i32,
+    pub team_name: String,
+    pub points: i32,
+    pub wins: i32,
+    pub draws: i32,
+    pub losses: i32,
+    pub goals_scored: i32,
+    pub goals_conceded: i32,
+}
 
 impl MatchDto { 
     pub fn to_match_resource(&self, home_team_name: String, away_team_name: String) -> MatchResource {
