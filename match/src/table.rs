@@ -63,21 +63,21 @@ pub struct Match {
     pub away_team_goal: Option<i32>,
 }
 
-#[allow(dead_code)]
-fn read_matches_for_result_table(season: &str, league_name: &str) -> Vec<Match> {
-    println!("Reading matches for {} - {}", season, league_name);
-    vec![]
-}
-
 pub fn build_result_table(matches: &[Match]) -> Vec<ResultTableRow> {
     let mut team_stats: HashMap<i32, TeamStatistics> = HashMap::new();
 
     for m in matches {
         if let (Some(home_goals), Some(away_goals)) = (m.home_team_goal, m.away_team_goal) {
             // Update Home Team
-            team_stats.entry(m.home_team_id).or_default().record_match(home_goals, away_goals);
+            team_stats
+                .entry(m.home_team_id)
+                .or_default()
+                .record_match(home_goals, away_goals);
             // Update Away Team
-            team_stats.entry(m.away_team_id).or_default().record_match(away_goals, home_goals);
+            team_stats
+                .entry(m.away_team_id)
+                .or_default()
+                .record_match(away_goals, home_goals);
         }
     }
 

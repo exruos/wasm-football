@@ -20,7 +20,7 @@ fn handle_request(req: Request) -> Response {
     router.get_async("/match/:id", get_match_by_id);
     router.get_async("/match/team/:id", get_matches_by_team_id);
     router.get_async("/match/result-table", get_result_table_by_season_and_league);
-    
+
     router.handle(req)
 }
 
@@ -32,9 +32,7 @@ async fn get_match_by_id(_req: Request, params: Params) -> Result<Response> {
 
     let sql = "SELECT id, country_id, league_id, season, stage, date, match_api_id, home_team_api_id, away_team_api_id, home_team_goal, away_team_goal, home_player_x1, home_player_x2, home_player_x3, home_player_x4, home_player_x5, home_player_x6, home_player_x7, home_player_x8, home_player_x9, home_player_x10, home_player_x11, away_player_x1, away_player_x2, away_player_x3, away_player_x4, away_player_x5, away_player_x6, away_player_x7, away_player_x8, away_player_x9, away_player_x10, away_player_x11 FROM match WHERE id = $1";
 
-    let rowset = conn.query(
-        sql, 
-        &[id.into()])?;
+    let rowset = conn.query(sql, &[id.into()])?;
 
     match rowset.rows().next() {
         None => Ok(Response::builder().status(404).build()),
@@ -63,9 +61,7 @@ async fn get_matches_by_team_id(_req: Request, params: Params) -> Result<Respons
 
     let sql = "SELECT id, country_id, league_id, season, stage, date, match_api_id, home_team_api_id, away_team_api_id, home_team_goal, away_team_goal, home_player_x1, home_player_x2, home_player_x3, home_player_x4, home_player_x5, home_player_x6, home_player_x7, home_player_x8, home_player_x9, home_player_x10, home_player_x11, away_player_x1, away_player_x2, away_player_x3, away_player_x4, away_player_x5, away_player_x6, away_player_x7, away_player_x8, away_player_x9, away_player_x10, away_player_x11 FROM match WHERE home_team_api_id = $1 OR away_team_api_id = $1";
 
-    let rowset = conn.query(
-        sql, 
-        &[id.into()])?;
+    let rowset = conn.query(sql, &[id.into()])?;
 
     let mut matches: Vec<MatchResource> = Vec::new();
 
@@ -96,7 +92,6 @@ async fn get_result_table_by_season_and_league(req: Request, _params: Params) ->
     let conn = Connection::open(&address)?;
 
     let url = Url::parse(&format!("http://localhost{}", req.uri()))?;
-    println!("Parsed URL: {:?}", url);
 
     let query_params: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
 
@@ -108,7 +103,10 @@ async fn get_result_table_by_season_and_league(req: Request, _params: Params) ->
     }
 
     let season = query_params.get("season").map(|s| s.as_str()).unwrap_or("");
-    let league_name = query_params.get("leagueName").map(|s| s.as_str()).unwrap_or("");
+    let league_name = query_params
+        .get("leagueName")
+        .map(|s| s.as_str())
+        .unwrap_or("");
 
     let sql = "
         SELECT 
@@ -122,19 +120,19 @@ async fn get_result_table_by_season_and_league(req: Request, _params: Params) ->
         WHERE m.season = $1 AND l.name = $2";
 
     let rowset = conn.query(
-        sql, 
-        &[season.to_string().into(), league_name.to_string().into()])?;
+        sql,
+        &[season.to_string().into(), league_name.to_string().into()],
+    )?;
 
-    println!("Fetched matches for season: {}, league: {}, count: {}", season, league_name, rowset.rows().count());
-
-    let matches: Vec<Match> = rowset.rows().map(|row| {
-        Match {
+    let matches: Vec<Match> = rowset
+        .rows()
+        .map(|row| Match {
             home_team_id: row.get("home_team_api_id").unwrap_or_default(),
             away_team_id: row.get("away_team_api_id").unwrap_or_default(),
             home_team_goal: row.get("home_team_goal"),
             away_team_goal: row.get("away_team_goal"),
-        }
-    }).collect();
+        })
+        .collect();
 
     let table = build_result_table(&matches);
     let mut table_resources: Vec<ResultTableRowResource> = Vec::new();
