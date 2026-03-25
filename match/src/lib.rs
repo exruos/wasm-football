@@ -4,14 +4,12 @@ mod table;
 use anyhow::{Ok, Result};
 use serde_json::Value;
 use spin_sdk::http::{Method, Params, Request, Response, Router};
-use spin_sdk::http_component;
+use spin_sdk::{http_component, variables};
 use spin_sdk::pg4::Connection;
 use url::Url;
 
 use crate::model::{MatchDto, MatchResource, ResultTableRowResource};
 use crate::table::{Match, build_result_table};
-
-const DB_URL_ENV: &str = "DB_URL";
 
 #[http_component]
 fn handle_request(req: Request) -> Response {
@@ -25,7 +23,7 @@ fn handle_request(req: Request) -> Response {
 }
 
 async fn get_match_by_id(_req: Request, params: Params) -> Result<Response> {
-    let address = std::env::var(DB_URL_ENV)?;
+    let address = variables::get("db_url")?;
     let conn = Connection::open(&address)?;
 
     let id = params.get("id").unwrap_or("0").parse::<i32>()?;
@@ -54,7 +52,7 @@ async fn get_match_by_id(_req: Request, params: Params) -> Result<Response> {
 }
 
 async fn get_matches_by_team_id(_req: Request, params: Params) -> Result<Response> {
-    let address = std::env::var(DB_URL_ENV)?;
+    let address = variables::get("db_url")?;
     let conn = Connection::open(&address)?;
 
     let id = params.get("id").unwrap_or("0").parse::<i32>()?;
@@ -88,7 +86,7 @@ async fn get_matches_by_team_id(_req: Request, params: Params) -> Result<Respons
 }
 
 async fn get_result_table_by_season_and_league(req: Request, _params: Params) -> Result<Response> {
-    let address = std::env::var(DB_URL_ENV)?;
+    let address = variables::get("db_url")?;
     let conn = Connection::open(&address)?;
 
     let url = Url::parse(&format!("http://localhost{}", req.uri()))?;

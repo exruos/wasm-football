@@ -2,12 +2,11 @@ mod model;
 
 use anyhow::{Ok, Result};
 use spin_sdk::http::{Params, Request, Response, Router};
-use spin_sdk::http_component;
+use spin_sdk::{http_component, variables};
 use spin_sdk::pg4::Connection;
 
 use crate::model::{Team, TeamAttributes, TeamRecord};
 
-const DB_URL_ENV: &str = "DB_URL";
 
 #[http_component]
 fn handle_request(req: Request) -> Response {
@@ -21,7 +20,7 @@ fn handle_request(req: Request) -> Response {
 }
 
 fn get_team_by_id(_req: Request, params: Params) -> Result<Response> {
-    let address = std::env::var(DB_URL_ENV)?;
+    let address = variables::get("db_url")?;
     let conn = Connection::open(&address)?;
 
     let id = params.get("id").unwrap_or("0").parse::<i32>()?;
@@ -45,7 +44,7 @@ fn get_team_by_id(_req: Request, params: Params) -> Result<Response> {
 }
 
 fn get_team_by_api_id(_req: Request, params: Params) -> Result<Response> {
-    let address = std::env::var(DB_URL_ENV)?;
+    let address = variables::get("db_url")?;
     let conn = Connection::open(&address)?;
 
     let id = params.get("id").unwrap_or("0").parse::<i32>()?;
@@ -69,7 +68,7 @@ fn get_team_by_api_id(_req: Request, params: Params) -> Result<Response> {
 }
 
 fn get_team_record_by_id(_req: Request, params: Params) -> Result<Response> {
-    let address = std::env::var(DB_URL_ENV)?;
+    let address = variables::get("db_url")?;
     let conn = Connection::open(&address)?;
 
     let id = params.get("id").unwrap_or("0").parse::<i32>()?;
