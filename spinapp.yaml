@@ -1,0 +1,5 @@
+# Migrated to Kustomize.
+#
+# Use one of:
+# kubectl apply -k kustomize/overlays/wasm-rust
+# kubectl apply -k kustomize/overlays/container-rust

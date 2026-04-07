@@ -1,0 +1,13 @@
+apiVersion: core.spinkube.dev/v1alpha1
+kind: SpinApp
+metadata:
+  name: wasm-football
+spec:
+  image: "ghcr.io/exruos/wasm-football:v1.3"
+  imagePullSecrets:
+    - name: ghcr
+  executor: containerd-shim-spin
+  replicas: 2
+  variables:
+    - name: db_url
+      value: ""
