@@ -1,0 +1,61 @@
+apiVersion: core.spinkube.dev/v1alpha1
+kind: SpinApp
+metadata:
+  name: wasm-football
+spec:
+  image: "ghcr.io/exruos/wasm-football:v1.3"
+  imagePullSecrets:
+    - name: ghcr
+  executor: containerd-shim-spin
+  replicas: 2
+  variables:
+    - name: db_url
+      value: "host=postgres-db-service port=5438 user=postgres password=postgres dbname=postgres"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-db
+  template:
+    metadata:
+      labels:
+        app: postgres-db
+    spec:
+      containers:
+      - name: postgres-db-clean-service
+        image: registry.gitlab.com/envite-consulting/sustainable-software-architecture/football-databases:postgres-17.7 #  prebuilt image
+        args: ["-p", "5438"]
+        env:
+        - name: POSTGRES_PASSWORD
+          value: "postgres"
+        ports:
+        - containerPort: 5438
+        resources:
+          requests:
+            memory: "128Mi"
+        livenessProbe:
+          exec:
+            command: ["pg_isready", "-p", "5438", "-U", "postgres"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+
+---
+
+# 3. The Service (Internal Networking)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-db-service
+spec:
+  selector:
+    app: postgres-db
+  ports:
+    - protocol: TCP
+      port: 5438
+      targetPort: 5438
