@@ -3,7 +3,7 @@ name = "match"
 authors = ["exruos <115374714+exruos@users.noreply.github.com>"]
 description = ""
 version = "0.1.0"
-rust-version = "1.94"
+rust-version = "1.95"
 edition = "2024"
 
 [lib]
