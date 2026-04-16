@@ -2,18 +2,25 @@ mod model;
 
 use anyhow::{Ok, Result};
 use spin_sdk::http::{Params, Request, Response, Router};
-use spin_sdk::{http_component, variables};
+use spin_sdk::variables;
+#[cfg(feature = "spin-component")]
+use spin_sdk::http_component;
 use spin_sdk::pg4::Connection;
 
 use crate::model::{Player, PlayerAttributes, PlayerRecord};
 
 
+pub fn register_routes(router: &mut Router) {
+    router.get("/players/:id", get_player_by_id);
+    router.get("/players/record/:id", get_player_record_by_id);
+}
+
+#[cfg(feature = "spin-component")]
 #[http_component]
 fn handle_request(req: Request) -> Response {
     let mut router = Router::new();
 
-    router.get("/players/:id", get_player_by_id);
-    router.get("/players/record/:id", get_player_record_by_id);
+    register_routes(&mut router);
 
     router.handle(req)
 }

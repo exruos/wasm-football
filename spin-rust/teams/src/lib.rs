@@ -2,19 +2,26 @@ mod model;
 
 use anyhow::{Ok, Result};
 use spin_sdk::http::{Params, Request, Response, Router};
-use spin_sdk::{http_component, variables};
+use spin_sdk::variables;
+#[cfg(feature = "spin-component")]
+use spin_sdk::http_component;
 use spin_sdk::pg4::Connection;
 
 use crate::model::{Team, TeamAttributes, TeamRecord};
 
 
+pub fn register_routes(router: &mut Router) {
+    router.get("/teams/:id", get_team_by_id);
+    router.get("/teams/api-id/:id", get_team_by_api_id);
+    router.get("/teams/record/:id", get_team_record_by_id);
+}
+
+#[cfg(feature = "spin-component")]
 #[http_component]
 fn handle_request(req: Request) -> Response {
     let mut router = Router::new();
 
-    router.get("/teams/:id", get_team_by_id);
-    router.get("/teams/api-id/:id", get_team_by_api_id);
-    router.get("/teams/record/:id", get_team_record_by_id);
+    register_routes(&mut router);
 
     router.handle(req)
 }

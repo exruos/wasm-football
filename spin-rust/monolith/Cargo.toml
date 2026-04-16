@@ -1,0 +1,18 @@
+[package]
+name = "monolith"
+authors = ["exruos <115374714+exruos@users.noreply.github.com>"]
+description = ""
+version = "0.1.0"
+rust-version = "1.94"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+spin-sdk = "5.2.0"
+players = { path = "../players", default-features = false, features = ["wasm"] }
+teams = { path = "../teams", default-features = false, features = ["wasm"] }
+matches = { package = "match", path = "../match", default-features = false, features = ["wasm"] }
+
+[workspace]

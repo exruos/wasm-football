@@ -7,7 +7,7 @@ rust-version = "1.94"
 edition = "2024"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anyhow = "1"
@@ -28,7 +28,8 @@ spin-sdk = { version = "5.2.0", optional = true }
 
 [features]
 wasm = ["dep:spin-sdk"]
+spin-component = ["wasm"]
 
 # native = ["dep:tokio", "dep:axum", "dep:sqlx"]
 
-default = ["wasm"]
+default = ["spin-component"]

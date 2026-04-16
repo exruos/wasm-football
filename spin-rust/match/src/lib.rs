@@ -4,20 +4,27 @@ mod table;
 use anyhow::{Ok, Result};
 use serde_json::Value;
 use spin_sdk::http::{Method, Params, Request, Response, Router};
-use spin_sdk::{http_component, variables};
+use spin_sdk::variables;
+#[cfg(feature = "spin-component")]
+use spin_sdk::http_component;
 use spin_sdk::pg4::Connection;
 use url::Url;
 
 use crate::model::{MatchDto, MatchResource, ResultTableRowResource};
 use crate::table::{Match, build_result_table};
 
+pub fn register_routes(router: &mut Router) {
+    router.get_async("/match/:id", get_match_by_id);
+    router.get_async("/match/team/:id", get_matches_by_team_id);
+    router.get_async("/match/result-table", get_result_table_by_season_and_league);
+}
+
+#[cfg(feature = "spin-component")]
 #[http_component]
 fn handle_request(req: Request) -> Response {
     let mut router = Router::new();
 
-    router.get_async("/match/:id", get_match_by_id);
-    router.get_async("/match/team/:id", get_matches_by_team_id);
-    router.get_async("/match/result-table", get_result_table_by_season_and_league);
+    register_routes(&mut router);
 
     router.handle(req)
 }
