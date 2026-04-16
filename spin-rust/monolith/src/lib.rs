@@ -7,7 +7,7 @@ fn handle_request(req: Request) -> Response {
 
     players::register_routes(&mut router);
     teams::register_routes(&mut router);
-    matches::register_routes(&mut router);
+    r#match::register_routes(&mut router);
 
     router.handle(req)
 }
