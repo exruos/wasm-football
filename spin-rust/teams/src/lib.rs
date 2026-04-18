@@ -1,14 +1,14 @@
-mod model;
+mod db;
 
 use anyhow::{Ok, Result};
+use football_shared::domain::teams::TeamRecord;
 use spin_sdk::http::{Params, Request, Response, Router};
 use spin_sdk::variables;
 #[cfg(feature = "spin-component")]
 use spin_sdk::http_component;
 use spin_sdk::pg4::Connection;
 
-use crate::model::{Team, TeamAttributes, TeamRecord};
-
+use crate::db::{team_attributes_from_row, team_from_row};
 
 pub fn register_routes(router: &mut Router) {
     router.get("/teams/:id", get_team_by_id);
@@ -39,7 +39,7 @@ fn get_team_by_id(_req: Request, params: Params) -> Result<Response> {
     match rowset.rows().next() {
         None => Ok(Response::builder().status(404).build()),
         Some(row) => {
-            let team = Team::try_from(&row)?;
+            let team = team_from_row(&row)?;
             let json = serde_json::to_string(&team).unwrap();
             Ok(Response::builder()
                 .status(200)
@@ -63,7 +63,7 @@ fn get_team_by_api_id(_req: Request, params: Params) -> Result<Response> {
     match rowset.rows().next() {
         None => Ok(Response::builder().status(404).build()),
         Some(row) => {
-            let team = Team::try_from(&row)?;
+            let team = team_from_row(&row)?;
             let json = serde_json::to_string(&team).unwrap();
             Ok(Response::builder()
                 .status(200)
@@ -84,7 +84,7 @@ fn get_team_record_by_id(_req: Request, params: Params) -> Result<Response> {
 
     let team = match team_rowset.rows().next() {
         None => return Ok(Response::builder().status(404).build()),
-        Some(row) => Team::try_from(&row)?,
+        Some(row) => team_from_row(&row)?,
     };
 
     let attributes_rowset = conn.query(
@@ -94,7 +94,7 @@ fn get_team_record_by_id(_req: Request, params: Params) -> Result<Response> {
 
     let mut attributes = Vec::new();
     for row in attributes_rowset.rows() {
-        attributes.push(TeamAttributes::try_from(&row)?);
+        attributes.push(team_attributes_from_row(&row)?);
     }
 
     let team_record = TeamRecord { team, attributes };

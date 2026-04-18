@@ -1,14 +1,14 @@
-mod model;
+mod db;
 
 use anyhow::{Ok, Result};
+use football_shared::domain::players::PlayerRecord;
 use spin_sdk::http::{Params, Request, Response, Router};
 use spin_sdk::variables;
 #[cfg(feature = "spin-component")]
 use spin_sdk::http_component;
 use spin_sdk::pg4::Connection;
 
-use crate::model::{Player, PlayerAttributes, PlayerRecord};
-
+use crate::db::{player_attributes_from_row, player_from_row};
 
 pub fn register_routes(router: &mut Router) {
     router.get("/players/:id", get_player_by_id);
@@ -36,7 +36,7 @@ fn get_player_by_id(_req: Request, params: Params) -> Result<Response> {
     match rowset.rows().next() {
         None => Ok(Response::builder().status(404).build()),
         Some(row) => {
-            let player = Player::try_from(&row)?;
+            let player = player_from_row(&row)?;
             let json = serde_json::to_string(&player).unwrap();
             Ok(Response::builder()
                 .status(200)
@@ -57,7 +57,7 @@ fn get_player_record_by_id(_req: Request, params: Params) -> Result<Response> {
 
     let player = match player_rowset.rows().next() {
         None => return Ok(Response::builder().status(404).build()),
-        Some(row) => Player::try_from(&row)?,
+        Some(row) => player_from_row(&row)?,
     };
 
     let attributes_rowset = conn.query(
@@ -67,7 +67,7 @@ fn get_player_record_by_id(_req: Request, params: Params) -> Result<Response> {
 
     let mut attributes = Vec::new();
     for row in attributes_rowset.rows() {
-        attributes.push(PlayerAttributes::try_from(&row)?);
+        attributes.push(player_attributes_from_row(&row)?);
     }
 
     let player_record = PlayerRecord { player, attributes };

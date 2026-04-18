@@ -1,0 +1,11 @@
+[package]
+name = "football-shared"
+authors = ["exruos <115374714+exruos@users.noreply.github.com>"]
+description = "Shared domain and pure services for football app"
+version = "0.1.0"
+rust-version = "1.95"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+chrono = "0.4.44"

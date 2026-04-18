@@ -14,5 +14,3 @@ spin-sdk = "5.2.0"
 players = { path = "../players", default-features = false, features = ["wasm"] }
 teams = { path = "../teams", default-features = false, features = ["wasm"] }
 match = { path = "../match", default-features = false, features = ["wasm"] }
-
-[workspace]

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::model::ResultTableRowResource;
+use crate::domain::matches::ResultTableRowResource;
 
 const POINTS_FOR_WIN: i32 = 3;
 const POINTS_FOR_DRAW: i32 = 1;
@@ -31,6 +31,13 @@ impl TeamStatistics {
     }
 }
 
+pub struct TableMatch {
+    pub home_team_id: i32,
+    pub away_team_id: i32,
+    pub home_team_goal: Option<i32>,
+    pub away_team_goal: Option<i32>,
+}
+
 pub struct ResultTableRow {
     pub team_id: i32,
     pub points: i32,
@@ -56,24 +63,15 @@ impl ResultTableRow {
     }
 }
 
-pub struct Match {
-    pub home_team_id: i32,
-    pub away_team_id: i32,
-    pub home_team_goal: Option<i32>,
-    pub away_team_goal: Option<i32>,
-}
-
-pub fn build_result_table(matches: &[Match]) -> Vec<ResultTableRow> {
+pub fn build_result_table(matches: &[TableMatch]) -> Vec<ResultTableRow> {
     let mut team_stats: HashMap<i32, TeamStatistics> = HashMap::new();
 
     for m in matches {
         if let (Some(home_goals), Some(away_goals)) = (m.home_team_goal, m.away_team_goal) {
-            // Update Home Team
             team_stats
                 .entry(m.home_team_id)
                 .or_default()
                 .record_match(home_goals, away_goals);
-            // Update Away Team
             team_stats
                 .entry(m.away_team_id)
                 .or_default()
@@ -96,13 +94,13 @@ pub fn build_result_table(matches: &[Match]) -> Vec<ResultTableRow> {
 
     table.sort_by(|a, b| {
         b.points
-            .cmp(&a.points) // Descending points
+            .cmp(&a.points)
             .then_with(|| {
                 let a_diff = a.goals_scored - a.goals_conceded;
                 let b_diff = b.goals_scored - b.goals_conceded;
-                b_diff.cmp(&a_diff) // Descending goal difference
+                b_diff.cmp(&a_diff)
             })
-            .then_with(|| b.goals_scored.cmp(&a.goals_scored)) // Descending goals scored
+            .then_with(|| b.goals_scored.cmp(&a.goals_scored))
     });
 
     table
