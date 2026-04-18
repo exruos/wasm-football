@@ -1,0 +1,33 @@
+services:
+  db:
+    container_name: postgres-db-clean-service2
+    platform: linux/amd64
+    image: registry.gitlab.com/envite-consulting/sustainable-software-architecture/football-databases:postgres-17.7
+    restart: always
+    shm_size: 128mb
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5438:5438"
+    command: -p 5438
+    healthcheck:
+      test: "pg_isready -p 5438 -U postgres"
+      start_period: "30s"
+      start_interval: "1s"
+      interval: "24h"
+
+  football-api:
+    build:
+      context: ../..
+      dockerfile: container/api/Dockerfile
+    container_name: football-container-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: postgres://postgres:postgres@postgres-db-clean-service2:5438/postgres
+      RUST_LOG: info
+    ports:
+      - "8088:8088"
+    restart: unless-stopped
+

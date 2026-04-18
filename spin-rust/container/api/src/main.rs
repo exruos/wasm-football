@@ -1,6 +1,7 @@
 mod routes;
 
-use axum::Router;
+use routes::AppState;
+use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tracing_subscriber::EnvFilter;
 
@@ -10,8 +11,14 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    let app = Router::new().merge(routes::router());
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let db_url = std::env::var("DB_URL").map_err(|_| anyhow::anyhow!("DB_URL environment variable is required"))?;
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&db_url)
+        .await?;
+
+    let app = routes::router(AppState { pool });
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8088));
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
