@@ -5,6 +5,6 @@ members = [
   "teams",
   "match",
   "monolith",
-  "container/api",
+  "container",
 ]
 resolver = "2"

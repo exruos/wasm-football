@@ -17,4 +17,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 tower-http = { version = "0.6", features = ["trace", "compression-gzip", "cors"] }
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
-football-shared = { path = "../../shared" }
+football-shared = { path = "../shared" }
