@@ -1,0 +1,10 @@
+[workspace]
+members = [
+  "shared",
+  "players",
+  "teams",
+  "match",
+  "monolith",
+  "container",
+]
+resolver = "2"

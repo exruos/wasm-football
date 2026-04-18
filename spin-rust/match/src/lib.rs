@@ -1,23 +1,30 @@
-mod model;
-mod table;
+mod db;
 
 use anyhow::{Ok, Result};
+use football_shared::domain::matches::{MatchResource, ResultTableRowResource};
+use football_shared::services::result_table::{TableMatch, build_result_table};
 use serde_json::Value;
 use spin_sdk::http::{Method, Params, Request, Response, Router};
-use spin_sdk::{http_component, variables};
+use spin_sdk::variables;
+#[cfg(feature = "spin-component")]
+use spin_sdk::http_component;
 use spin_sdk::pg4::Connection;
 use url::Url;
 
-use crate::model::{MatchDto, MatchResource, ResultTableRowResource};
-use crate::table::{Match, build_result_table};
+use crate::db::match_dto_from_row;
 
+pub fn register_routes(router: &mut Router) {
+    router.get_async("/match/:id", get_match_by_id);
+    router.get_async("/match/team/:id", get_matches_by_team_id);
+    router.get_async("/match/result-table", get_result_table_by_season_and_league);
+}
+
+#[cfg(feature = "spin-component")]
 #[http_component]
 fn handle_request(req: Request) -> Response {
     let mut router = Router::new();
 
-    router.get_async("/match/:id", get_match_by_id);
-    router.get_async("/match/team/:id", get_matches_by_team_id);
-    router.get_async("/match/result-table", get_result_table_by_season_and_league);
+    register_routes(&mut router);
 
     router.handle(req)
 }
@@ -35,7 +42,7 @@ async fn get_match_by_id(_req: Request, params: Params) -> Result<Response> {
     match rowset.rows().next() {
         None => Ok(Response::builder().status(404).build()),
         Some(row) => {
-            let match_dto = MatchDto::try_from(&row)?;
+            let match_dto = match_dto_from_row(&row)?;
 
             let home_team_name = resolve_team_name(match_dto.home_team_api_id.unwrap_or(0)).await?;
             let away_team_name = resolve_team_name(match_dto.away_team_api_id.unwrap_or(0)).await?;
@@ -64,7 +71,7 @@ async fn get_matches_by_team_id(_req: Request, params: Params) -> Result<Respons
     let mut matches: Vec<MatchResource> = Vec::new();
 
     for row in rowset.rows() {
-        let match_dto = MatchDto::try_from(&row)?;
+        let match_dto = match_dto_from_row(&row)?;
 
         let home_team_name = resolve_team_name(match_dto.home_team_api_id.unwrap_or(0)).await?;
         let away_team_name = resolve_team_name(match_dto.away_team_api_id.unwrap_or(0)).await?;
@@ -122,9 +129,9 @@ async fn get_result_table_by_season_and_league(req: Request, _params: Params) ->
         &[season.to_string().into(), league_name.to_string().into()],
     )?;
 
-    let matches: Vec<Match> = rowset
+    let matches: Vec<TableMatch> = rowset
         .rows()
-        .map(|row| Match {
+        .map(|row| TableMatch {
             home_team_id: row.get("home_team_api_id").unwrap_or_default(),
             away_team_id: row.get("away_team_api_id").unwrap_or_default(),
             home_team_goal: row.get("home_team_goal"),

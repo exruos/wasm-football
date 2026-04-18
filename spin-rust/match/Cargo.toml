@@ -3,33 +3,22 @@ name = "match"
 authors = ["exruos <115374714+exruos@users.noreply.github.com>"]
 description = ""
 version = "0.1.0"
-rust-version = "1.94"
+rust-version = "1.95"
 edition = "2024"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anyhow = "1"
-serde = { version = "1.0", features = ["derive"]}
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-chrono = "0.4.9" 
+chrono = "0.4.9"
 url = "2.5.8"
-
-# --- Spin/Wasm Stack ---
+football-shared = { path = "../shared" }
 spin-sdk = { version = "5.2.0", optional = true }
-
-# # --- Native/Docker Stack ---
-# tokio = { version = "1.5", features = ["full"], optional = true }
-# axum = { version = "0.8.8", optional = true }
-# sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "macros"], optional = true }
-
-[workspace]
-
 
 [features]
 wasm = ["dep:spin-sdk"]
-
-# native = ["dep:tokio", "dep:axum", "dep:sqlx"]
-
-default = ["wasm"]
+spin-component = ["wasm"]
+default = ["spin-component"]

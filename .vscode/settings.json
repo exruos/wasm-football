@@ -1,0 +1,8 @@
+{
+  "rust-analyzer.linkedProjects": [
+    "spin-rust/match/Cargo.toml",
+    "spin-rust/players/Cargo.toml",
+    "spin-rust/teams/Cargo.toml",
+    "spin-rust/monolith/Cargo.toml"
+  ]
+}
