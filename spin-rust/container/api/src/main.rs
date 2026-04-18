@@ -11,7 +11,8 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    let db_url = std::env::var("DB_URL").map_err(|_| anyhow::anyhow!("DB_URL environment variable is required"))?;
+    let db_url = std::env::var("DB_URL")
+        .map_err(|_| anyhow::anyhow!("DB_URL environment variable is required"))?;
     let pool = PgPoolOptions::new()
         .max_connections(10)
         .connect(&db_url)
