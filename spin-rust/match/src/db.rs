@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 use football_shared::domain::matches::MatchDto;
-use spin_sdk::pg4::Row;
+use spin_sdk::pg::Row;
 
 pub fn match_dto_from_row(row: &Row) -> anyhow::Result<MatchDto> {
     Ok(MatchDto {

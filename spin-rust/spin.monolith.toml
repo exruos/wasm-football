@@ -14,14 +14,14 @@ route = "/..."
 component = "monolith"
 
 [component.monolith]
-source = "target/wasm32-wasip1/release/monolith.wasm"
+source = "target/wasm32-wasip2/release/monolith.wasm"
 allowed_outbound_hosts = ["postgres://*:5438", "http://self"]
 
 [component.monolith.variables]
 db_url = "{{ db_url }}"
 
 [component.monolith.build]
-command = "cargo build --target wasm32-wasip1 --release"
+command = "cargo build --target wasm32-wasip2 --release"
 workdir = "monolith"
 watch = [
   "src/**/*.rs",

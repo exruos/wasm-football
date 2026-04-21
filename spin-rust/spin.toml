@@ -14,14 +14,14 @@ route = "/players/..."
 component = "players"
 
 [component.players]
-source = "target/wasm32-wasip1/release/players.wasm"
+source = "target/wasm32-wasip2/release/players.wasm"
 allowed_outbound_hosts = ["postgres://*:5438"]
 
 [component.players.variables]
 db_url = "{{ db_url }}"
 
 [component.players.build]
-command = "cargo build --target wasm32-wasip1 --release"
+command = "cargo build --target wasm32-wasip2 --release"
 workdir = "players"
 watch = ["src/**/*.rs", "Cargo.toml"]
 
@@ -31,14 +31,14 @@ route = "/teams/..."
 component = "teams"
 
 [component.teams]
-source = "target/wasm32-wasip1/release/teams.wasm"
+source = "target/wasm32-wasip2/release/teams.wasm"
 allowed_outbound_hosts = ["postgres://*:5438"]
 
 [component.teams.variables]
 db_url = "{{ db_url }}"
 
 [component.teams.build]
-command = "cargo build --target wasm32-wasip1 --release"
+command = "cargo build --target wasm32-wasip2 --release"
 workdir = "teams"
 watch = ["src/**/*.rs", "Cargo.toml"]
 
@@ -48,13 +48,13 @@ route = "/match/..."
 component = "match"
 
 [component.match]
-source = "target/wasm32-wasip1/release/match.wasm"
-allowed_outbound_hosts = ["postgres://*:5438", "http://self"]
+source = "target/wasm32-wasip2/release/match.wasm"
+allowed_outbound_hosts = ["postgres://*:5438", "http://self/", "http://teams.spin.internal/"]
 
 [component.match.variables]
 db_url = "{{ db_url }}"
 
 [component.match.build]
-command = "cargo build --target wasm32-wasip1 --release"
+command = "cargo build --target wasm32-wasip2 --release"
 workdir = "match"
 watch = ["src/**/*.rs", "Cargo.toml"]
