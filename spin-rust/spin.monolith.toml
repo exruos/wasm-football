@@ -14,7 +14,7 @@ route = "/..."
 component = "monolith"
 
 [component.monolith]
-source = "monolith/target/wasm32-wasip1/release/monolith.wasm"
+source = "target/wasm32-wasip1/release/monolith.wasm"
 allowed_outbound_hosts = ["postgres://*:5438", "http://self"]
 
 [component.monolith.variables]

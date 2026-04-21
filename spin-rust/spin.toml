@@ -14,7 +14,7 @@ route = "/players/..."
 component = "players"
 
 [component.players]
-source = "players/target/wasm32-wasip1/release/players.wasm"
+source = "target/wasm32-wasip1/release/players.wasm"
 allowed_outbound_hosts = ["postgres://*:5438"]
 
 [component.players.variables]
@@ -31,7 +31,7 @@ route = "/teams/..."
 component = "teams"
 
 [component.teams]
-source = "teams/target/wasm32-wasip1/release/teams.wasm"
+source = "target/wasm32-wasip1/release/teams.wasm"
 allowed_outbound_hosts = ["postgres://*:5438"]
 
 [component.teams.variables]
@@ -48,7 +48,7 @@ route = "/match/..."
 component = "match"
 
 [component.match]
-source = "match/target/wasm32-wasip1/release/match.wasm"
+source = "target/wasm32-wasip1/release/match.wasm"
 allowed_outbound_hosts = ["postgres://*:5438", "http://self"]
 
 [component.match.variables]
