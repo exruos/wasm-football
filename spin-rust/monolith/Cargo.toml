@@ -10,7 +10,10 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-spin-sdk = "5.2.0"
+anyhow = { workspace = true }
+axum = { workspace = true }
+spin-sdk = { workspace = true }
 players = { path = "../players", default-features = false, features = ["wasm"] }
 teams = { path = "../teams", default-features = false, features = ["wasm"] }
 match = { path = "../match", default-features = false, features = ["wasm"] }
+tower = { workspace = true }

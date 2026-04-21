@@ -118,7 +118,6 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -137,7 +136,6 @@ dependencies = [
  "sync_wrapper",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -1010,11 +1008,13 @@ name = "match"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "football-shared",
  "serde",
  "serde_json",
  "spin-sdk",
+ "tower",
  "url",
 ]
 
@@ -1090,10 +1090,13 @@ dependencies = [
 name = "monolith"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "axum",
  "match",
  "players",
  "spin-sdk",
  "teams",
+ "tower",
 ]
 
 [[package]]
@@ -1172,11 +1175,13 @@ name = "players"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "football-shared",
  "serde",
  "serde_json",
  "spin-sdk",
+ "tower",
 ]
 
 [[package]]
@@ -1842,11 +1847,13 @@ name = "teams"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "football-shared",
  "serde",
  "serde_json",
  "spin-sdk",
+ "tower",
 ]
 
 [[package]]
@@ -1966,7 +1973,6 @@ dependencies = [
  "tokio",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]

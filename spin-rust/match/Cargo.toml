@@ -10,13 +10,15 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-anyhow = "1"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-chrono = "0.4.9"
-url = "2.5.8"
-football-shared = { path = "../shared" }
-spin-sdk = { version = "5.2.0", optional = true }
+anyhow = { workspace = true }
+axum = { workspace = true, features = ["json", "query"] }
+chrono = { workspace = true }
+football-shared = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+spin-sdk = { workspace = true, optional = true }
+tower = { workspace = true }
+url = { workspace = true }
 
 [features]
 wasm = ["dep:spin-sdk"]
