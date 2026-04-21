@@ -8,3 +8,14 @@ members = [
   "container",
 ]
 resolver = "2"
+
+[workspace.dependencies]
+anyhow = "1"
+axum = { version = "0.8.8", default-features = false }
+chrono = "0.4.44"
+football-shared = { path = "shared" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+spin-sdk = "6.0.0"
+tower = { version = "0.5", default-features = false, features = ["util"] }
+url = "2.5.8"
