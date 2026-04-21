@@ -1,0 +1,25 @@
+spin_manifest_version = 2
+
+[application]
+name = "football-monolith"
+version = "0.1.0"
+authors = ["exruos <115374714+exruos@users.noreply.github.com>"]
+description = "Get football player, team, and match information (monolith)"
+
+[variables]
+db_url = { default = "host=localhost port=5438 user=postgres password=postgres dbname=postgres" }
+
+[[trigger.http]]
+route = "/..."
+component = "monolith"
+
+[component.monolith]
+source = "component/dist/SpinApp.wasm"
+allowed_outbound_hosts = ["postgres://*:5438", "http://self"]
+
+[component.monolith.variables]
+db_url = "{{ db_url }}"
+
+[component.monolith.build]
+command = "dotnet build"
+workdir = "component"

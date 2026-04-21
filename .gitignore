@@ -2,3 +2,6 @@ main.wasm
 .spin/
 .env
 **/target/
+**/bin/
+**/obj/
+**.sln
