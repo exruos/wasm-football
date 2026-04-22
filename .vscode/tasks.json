@@ -1,0 +1,23 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"run",
+				"--manifest-path",
+				"spin-rust/container/Cargo.toml"
+			],
+			"options": {
+				"env": {
+					"DB_URL": "postgres://postgres:postgres@localhost:5438/postgres"
+				}
+			},
+			"problemMatcher": [
+				"$rustc"
+			],
+			"label": "rust: run football-container-api"
+		}
+	]
+}
