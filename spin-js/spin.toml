@@ -1,0 +1,29 @@
+spin_manifest_version = 2
+
+[application]
+authors = ["exruos <115374714+exruos@users.noreply.github.com>"]
+description = ""
+name = "football-js"
+version = "0.1.0"
+
+[variables]
+db_url = { default = "postgres://postgres:postgres@localhost:5438/postgres" }
+
+[[trigger.http]]
+route = "/..."
+component = "football-js"
+
+[component.football-js]
+source = "dist/football-js.wasm"
+exclude_files = ["**/node_modules"]
+allowed_outbound_hosts = [
+    "postgres://*:5438",
+    "tcp://127.0.0.1:*", # Uncomment this line to while using the StarlingMonkey Debugger
+]
+
+[component.football-js.variables]
+db_url = "{{ db_url }}"
+
+[component.football-js.build]
+command = ["npm install", "npm run build"]
+watch = ["src/**/*.js"]
