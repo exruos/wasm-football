@@ -49,11 +49,8 @@ def to_fastapi_response(result: RouteResult) -> Response:
     return Response(status_code=result.status)
 
 
-@app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
+@app.get("/{full_path:path}")
 async def handle_all(full_path: str, request: Request) -> Response:
-    if request.method != "GET":
-        return to_fastapi_response(not_found_result())
-
     path = "/" + full_path
     query = parse_qs(request.url.query)
 
