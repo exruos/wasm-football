@@ -1,6 +1,7 @@
+name: rust-football
+
 services:
   db:
-    container_name: postgres-db-service
     platform: linux/amd64
     image: registry.gitlab.com/envite-consulting/sustainable-software-architecture/football-databases:postgres-17.7
     restart: always
@@ -16,16 +17,15 @@ services:
       start_interval: "1s"
       interval: "24h"
 
-  football-api:
+  service:
     build:
-      context: ../..
-      dockerfile: container/api/Dockerfile
-    container_name: football-container-api
+      context: ..
+      dockerfile: container/Dockerfile
     depends_on:
       db:
         condition: service_healthy
     environment:
-      DB_URL: postgres://postgres:postgres@postgres-db-service:5438/postgres
+      DB_URL: postgres://postgres:postgres@db:5438/postgres
       RUST_LOG: info
     ports:
       - "8088:8088"

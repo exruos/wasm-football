@@ -1,5 +1,5 @@
 [package]
-name = "football-container-api"
+name = "rust-football-api"
 authors = ["exruos <115374714+exruos@users.noreply.github.com>"]
 description = "Containerized HTTP API adapter"
 version = "0.1.0"
