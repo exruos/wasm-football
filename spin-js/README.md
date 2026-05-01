@@ -2,6 +2,8 @@
 
 A starter template for building JavaScript HTTP applications with Spin.
 
+It also includes a Node/container entrypoint that reuses the same router assembly and pure mapping logic.
+
 ## Getting Started
 
 Build the App
@@ -14,6 +16,18 @@ spin build
 
 ```bash
 spin up
+```
+
+## Run the Containerized App
+
+```bash
+docker compose -f container/docker-compose.yml up --build
+```
+
+Or run the Node entrypoint directly:
+
+```bash
+npm run start:node
 ```
 
 ## Using Spin Interfaces
