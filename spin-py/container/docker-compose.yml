@@ -1,0 +1,32 @@
+name: football-py
+
+services:
+  db:
+    platform: linux/amd64
+    image: registry.gitlab.com/envite-consulting/sustainable-software-architecture/football-databases:postgres-17.7
+    restart: always
+    shm_size: 128mb
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5438:5438"
+    command: -p 5438
+    healthcheck:
+      test: "pg_isready -p 5438 -U postgres"
+      start_period: "30s"
+      start_interval: "1s"
+      interval: "24h"
+
+  service:
+    build:
+      context: ..
+      dockerfile: container/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: postgres://postgres:postgres@db:5438/postgres
+      PORT: 8088
+    ports:
+      - "8088:8088"
+    restart: unless-stopped
