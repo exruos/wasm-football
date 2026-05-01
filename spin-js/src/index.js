@@ -1,16 +1,8 @@
 
-import { AutoRouter } from 'itty-router';
-import { registerHealthRoutes } from './routes/health';
-import { registerMatchRoutes } from './routes/match';
-import { registerPlayerRoutes } from './routes/players';
-import { registerTeamRoutes } from './routes/teams';
+import { createApp } from './app.js';
+import { getConnection, parseId } from './db.js';
 
-const router = AutoRouter();
-
-registerHealthRoutes(router);
-registerPlayerRoutes(router);
-registerTeamRoutes(router);
-registerMatchRoutes(router);
+const router = createApp({ getConnection, parseId });
 
 addEventListener('fetch', (event) => {
     event.respondWith(router.fetch(event.request));
