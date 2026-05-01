@@ -10,6 +10,11 @@ WORKDIR /app
 COPY package.json bun.lockb* ./
 RUN bun install --production
 
+FROM denoland/deno:latest AS deps-deno
+WORKDIR /app
+COPY deno.json deno.lock* ./
+RUN deno cache --reload container/src/main.ts 2>/dev/null || true
+
 FROM ${RUNTIME}:25-slim AS runtime-node
 WORKDIR /app
 ENV NODE_ENV=production
@@ -33,5 +38,16 @@ COPY src ./src
 COPY container ./container
 EXPOSE 8088
 CMD ["bun", "container/src/main.js"]
+
+FROM denoland/deno:latest AS runtime-deno
+WORKDIR /app
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=8088
+COPY --from=deps-deno /deno-dir /deno-dir
+COPY src ./src
+COPY container ./container
+EXPOSE 8088
+CMD ["deno", "run", "--allow-net", "--allow-env", "container/src/main.js"]
 
 FROM runtime-${RUNTIME}
