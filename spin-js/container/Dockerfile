@@ -16,7 +16,7 @@ COPY --from=deps-node /app/node_modules ./node_modules
 COPY package.json ./
 RUN deno cache --node-modules-dir=manual container/src/main.js || true
 
-FROM ${RUNTIME}:25-slim AS runtime-node
+FROM node:25-slim AS runtime-node
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
