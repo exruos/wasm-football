@@ -55,5 +55,10 @@
       "season": "2015/2016",
       "leagueName": "Germany 1. Bundesliga"
     }
+  },
+  {
+    "name": "not-found-route",
+    "method": "GET",
+    "pathTemplate": "/does-not-exist"
   }
 ]
