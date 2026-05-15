@@ -1,0 +1,59 @@
+[
+  {
+    "name": "players-by-id",
+    "method": "GET",
+    "pathTemplate": "/players/{id}",
+    "params": {
+      "id": 1
+    }
+  },
+  {
+    "name": "players-record-by-id",
+    "method": "GET",
+    "pathTemplate": "/players/record/{id}",
+    "params": {
+      "id": 1
+    }
+  },
+  {
+    "name": "teams-by-id",
+    "method": "GET",
+    "pathTemplate": "/teams/{id}",
+    "params": {
+      "id": 1
+    }
+  },
+  {
+    "name": "teams-by-api-id",
+    "method": "GET",
+    "pathTemplate": "/teams/api-id/{id}",
+    "params": {
+      "id": 9930
+    }
+  },
+  {
+    "name": "match-by-id",
+    "method": "GET",
+    "pathTemplate": "/match/{id}",
+    "params": {
+      "id": 1
+    }
+  },
+  {
+    "name": "match-by-team-id",
+    "method": "GET",
+    "pathTemplate": "/match/team/{id}",
+    "params": {
+      "id": 1601
+    }
+  },
+  {
+    "name": "match-result-table",
+    "method": "GET",
+    "pathTemplate": "/match/result-table",
+    "query": {
+      "season": "2015/2016",
+      "leagueName": "Germany 1. Bundesliga"
+    }
+  }
+]

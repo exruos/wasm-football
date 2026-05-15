@@ -1,0 +1,10 @@
+{
+  "name": "football-api-contract-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "compare": "node compare.mjs",
+    "compare:help": "node compare.mjs --help"
+  }
+}
