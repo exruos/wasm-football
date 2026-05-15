@@ -46,7 +46,7 @@ def to_spin_response(result: RouteResult) -> Response:
         return Response(
             result.status,
             {"content-type": "application/json"},
-            json.dumps(result.payload).encode("utf-8"),
+            json.dumps(result.payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
         )
 
     if result.content_type == "text/plain":
