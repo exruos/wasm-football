@@ -112,22 +112,6 @@ function buildPath(pathTemplate, params = {}) {
   });
 }
 
-function canonicalizeJson(value) {
-  if (Array.isArray(value)) {
-    return value.map(canonicalizeJson);
-  }
-
-  if (value && typeof value === 'object') {
-    const result = {};
-    for (const key of Object.keys(value).sort()) {
-      result[key] = canonicalizeJson(value[key]);
-    }
-    return result;
-  }
-
-  return value;
-}
-
 function looksLikeJson(text) {
   const trimmed = text.trim();
   return trimmed.startsWith('{') || trimmed.startsWith('[');
@@ -138,7 +122,7 @@ function normalizeResponseBody(text, contentType) {
     try {
       return {
         kind: 'json',
-        value: canonicalizeJson(JSON.parse(text)),
+        value: JSON.parse(text),
       };
     } catch {
       // Fall through to plain text comparison when parsing fails.
