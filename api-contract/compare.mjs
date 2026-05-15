@@ -135,6 +135,10 @@ function normalizeResponseBody(text, contentType) {
   };
 }
 
+function calculateBodyByteLength(text) {
+  return Buffer.byteLength(text, 'utf8');
+}
+
 function normalizeResponse(response, bodyText) {
   const rawContentType = response.headers.get('content-type') ?? '';
   const contentType = rawContentType.split(';')[0].trim().toLowerCase();
@@ -142,6 +146,7 @@ function normalizeResponse(response, bodyText) {
   return {
     status: response.status,
     contentType,
+    bodyByteLength: calculateBodyByteLength(bodyText),
     body: normalizeResponseBody(bodyText, contentType),
   };
 }
@@ -289,6 +294,13 @@ function compareResponses(reference, candidate) {
     return {
       equal: false,
       reason: `content-type ${reference.contentType || '(empty)'} !== ${candidate.contentType || '(empty)'}`,
+    };
+  }
+
+  if (reference.bodyByteLength !== candidate.bodyByteLength) {
+    return {
+      equal: false,
+      reason: `content-length(calc) ${reference.bodyByteLength} !== ${candidate.bodyByteLength}`,
     };
   }
 

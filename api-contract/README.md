@@ -12,7 +12,7 @@ It checks these endpoints:
 - `/match/team/{id}` with `id=1601`
 - `/match/result-table?season=2015/2016&leagueName=Germany 1. Bundesliga`
 
-The comparator normalizes JSON responses by sorting object keys recursively, then compares status code, content type, and normalized body.
+The comparator parses JSON responses, trims plain-text bodies, compares status code and content type, checks the calculated body byte length, and then compares the normalized body.
 
 ## Run
 
