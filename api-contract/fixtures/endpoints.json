@@ -1,4 +1,12 @@
-[
+[  
+  {
+    "name": "players-by-id-not-found",
+    "method": "GET",
+    "pathTemplate": "/players/{id}",
+    "params": {
+      "id": 0
+    }
+  },
   {
     "name": "players-by-id",
     "method": "GET",
