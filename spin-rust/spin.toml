@@ -58,3 +58,8 @@ db_url = "{{ db_url }}"
 command = "cargo build --target wasm32-wasip1 --release"
 workdir = "match"
 watch = ["src/**/*.rs", "Cargo.toml"]
+
+
+[[trigger.http]]
+route = "/..."
+static_response = { status = 404, body = "Not Found" }

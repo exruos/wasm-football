@@ -61,6 +61,7 @@ pub fn router(state: AppState) -> Router {
             "/match/result-table",
             get(matches::get_result_table_by_season_and_league),
         )
+        .fallback(|| async { (StatusCode::NOT_FOUND, "Not Found") })
         .with_state(state)
 }
 
