@@ -1,10 +1,11 @@
 from contextlib import closing
+import json
 import os
 import re
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from fastapi.responses import PlainTextResponse, Response
 import pg8000.dbapi
 
 from football_core import RouteResult, handle_get_request, not_found_result
@@ -41,7 +42,11 @@ class Pg8000DbClient:
 
 def to_fastapi_response(result: RouteResult) -> Response:
     if result.content_type == "application/json":
-        return JSONResponse(content=result.payload, status_code=result.status)
+        return Response(
+            content=json.dumps(result.payload, separators=(",", ":"), ensure_ascii=False),
+            status_code=result.status,
+            media_type="application/json",
+        )
 
     if result.content_type == "text/plain":
         return PlainTextResponse(content=str(result.payload or ""), status_code=result.status)
