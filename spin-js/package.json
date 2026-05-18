@@ -20,7 +20,7 @@
     "mkdirp": "^3.0.1"
   },
   "dependencies": {
-    "@spinframework/build-tools": "^2.0.0",
+    "@spinframework/build-tools": "^2.1.0",
     "@spinframework/spin-postgres": "^2.0.0",
     "@spinframework/spin-variables": "^1.0.1",
     "@spinframework/wasi-http-proxy": "^2.0.0",
