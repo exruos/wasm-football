@@ -1,9 +1,9 @@
 import json
 from urllib.parse import parse_qs, urlsplit
 
-from spin_sdk.http import Handler, Request, Response
-from spin_sdk import variables
-from spin_sdk.wit.imports import spin_postgres_postgres_4_2_0 as pg
+from spin_sdk import http, variables
+from spin_sdk.http import Request, Response
+import spin_sdk.postgres as pg
 
 from football_core import RouteResult, handle_get_request, not_found_result
 
@@ -63,7 +63,7 @@ async def get_connection() -> pg.Connection:
     return pg.Connection.open(db_url or DB_URL_DEFAULT)
 
 
-class HttpHandler(Handler):
+class HttpHandler(http.Handler):
     async def handle_request(self, request: Request) -> Response:
         if request.method != "GET":
             return to_spin_response(not_found_result())
