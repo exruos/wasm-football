@@ -1,11 +1,9 @@
 apiVersion: core.spinkube.dev/v1alpha1
 kind: SpinApp
 metadata:
-  name: football-rust-wasm
+  name: football-js-wasm
 spec:
-  image: localhost:5000/football-rust-wasm:latest
-  imagePullSecrets:
-    - name: ghcr
+  image: localhost:5000/football-js-wasm:latest
   executor: containerd-shim-spin
   replicas: 2
   variables:
