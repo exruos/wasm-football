@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: football
+  name: football-kotlin-container
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: football
+      app: football-kotlin-container
   template:
     metadata:
       labels:
-        app: football
+        app: football-kotlin-container
     spec:
       containers:
-      - name: football
+      - name: football-kotlin-container
         image: registry.gitlab.com/envite-consulting/sustainable-software-architecture/isaqb-green/spring-clean-football-service:0.0.1-SNAPSHOT
         ports:
         - containerPort: 8080

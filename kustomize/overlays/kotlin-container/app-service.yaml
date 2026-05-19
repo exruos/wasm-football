@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: football
+  name: football-kotlin-container
 spec:
   selector:
-    app: football
+    app: football-kotlin-container
   ports:
     - name: http
       protocol: TCP

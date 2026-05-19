@@ -1,20 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: football
+  name: football-rust-container
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: football
+      app: football-rust-container
   template:
     metadata:
       labels:
-        app: football
+        app: football-rust-container
     spec:
       containers:
         - name: app
-          image: ghcr.io/exruos/container-football:v1.3
+          image: localhost:5000/football-rust-container:latest
           ports:
             - containerPort: 3000
           env:

@@ -1,7 +1,7 @@
 apiVersion: core.spinkube.dev/v1alpha1
 kind: SpinApp
 metadata:
-  name: wasm-football
+  name: football-rust-wasm
 spec:
   image: "ghcr.io/exruos/wasm-football:v1.3"
   imagePullSecrets:
