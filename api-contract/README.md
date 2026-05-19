@@ -21,7 +21,7 @@ Use at least two base URLs when comparing implementations:
 
 ```powershell
 cd api-contract
-$env:API_TARGETS = "http://localhost:8088,http://localhost:8089"
+$env:API_TARGETS = "http://localhost:8080,http://localhost:8089"
 npm run compare
 ```
 
@@ -29,7 +29,7 @@ Or pass targets explicitly:
 
 ```powershell
 cd api-contract
-npm run compare -- --target http://localhost:8088 --target http://localhost:8089
+npm run compare -- --target http://localhost:8080 --target http://localhost:3000
 ```
 
 ## Artifacts
@@ -38,7 +38,7 @@ To save raw responses for debugging, add an artifacts directory:
 
 ```powershell
 cd api-contract
-npm run compare -- --target http://localhost:8088 --target http://localhost:8089 --artifacts-dir .\artifacts\latest
+npm run compare -- --target http://localhost:8080 --target http://localhost:3000 --artifacts-dir .\artifacts\latest
 ```
 
 Each endpoint/target pair is written as JSON under that directory.

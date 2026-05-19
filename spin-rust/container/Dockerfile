@@ -14,6 +14,6 @@ RUN apt-get update \
 COPY --from=builder /app/target/release/rust-football-api /usr/local/bin/rust-football-api
 
 ENV RUST_LOG=info
-EXPOSE 8088
+EXPOSE 8080
 
 CMD ["/usr/local/bin/rust-football-api"]

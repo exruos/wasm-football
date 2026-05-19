@@ -28,6 +28,6 @@ services:
       DB_URL: postgres://postgres:postgres@db:5438/postgres
       RUST_LOG: info
     ports:
-      - "8088:8088"
+      - "8080:8080"
     restart: unless-stopped
 

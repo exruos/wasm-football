@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     let app = routes::router(AppState { pool });
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8088));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

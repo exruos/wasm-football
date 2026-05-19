@@ -4,7 +4,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_FIXTURES_FILE = new URL('./fixtures/endpoints.json', import.meta.url);
-const DEFAULT_TARGET_URLS = ['http://localhost:8088'];
+const DEFAULT_TARGET_URLS = ['http://localhost:8080'];
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 function printHelp() {
@@ -12,7 +12,7 @@ function printHelp() {
   npm run compare -- [--target <baseUrl>]... [--fixtures <path>] [--artifacts-dir <path>] [--timeout-ms <ms>]
 
 Examples:
-  npm run compare -- --target http://localhost:8088 --target http://localhost:8089
+  npm run compare -- --target http://localhost:8080 --target http://localhost:8089
   npm run compare -- --fixtures ./fixtures/endpoints.json --artifacts-dir ./artifacts/latest
 `);
 }

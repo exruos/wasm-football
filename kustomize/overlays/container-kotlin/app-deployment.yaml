@@ -18,7 +18,7 @@ spec:
       - name: spring-clean-football
         image: registry.gitlab.com/envite-consulting/sustainable-software-architecture/isaqb-green/spring-clean-football-service:0.0.1-SNAPSHOT
         ports:
-        - containerPort: 8088
+        - containerPort: 8080
           name: http
         env:
         - name: SPRING_DATASOURCE_URL
@@ -26,11 +26,11 @@ spec:
         - name: THC_PATH
           value: "/actuator/health"
         - name: THC_PORT
-          value: "8088"
+          value: "8080"
         - name: MATCH_REST_TEAM_NAME_STRATEGY
           value: "POJO_WITHOUT_CACHE"
         - name: MATCH_REST_TEAM_SERVICE_BASE_URL
-          value: "http://service:8088"
+          value: "http://service:8080"
         - name: SPRING_FLYWAY_ENABLED
           value: "false"
         livenessProbe:

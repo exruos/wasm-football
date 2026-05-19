@@ -3,7 +3,7 @@ import { createApp } from '../../src/app.js';
 import { getConnection, parseId } from './db.js';
 
 const router = createApp({ getConnection, parseId });
-const port = Number.parseInt(process.env.PORT ?? '8088', 10);
+const port = Number.parseInt(process.env.PORT ?? '8080', 10);
 const host = process.env.HOST ?? '0.0.0.0';
 
 const server = createServer(async (request, response) => {

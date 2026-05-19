@@ -20,6 +20,6 @@ RUN uv sync --frozen --no-cache --no-install-project --extra container
 
 COPY football_core.py container_server.py ./
 
-EXPOSE 8088
+EXPOSE 8080
 
-CMD ["uvicorn", "container_server:app", "--host", "0.0.0.0", "--port", "8088"]
+CMD ["uvicorn", "container_server:app", "--host", "0.0.0.0", "--port", "8080"]
