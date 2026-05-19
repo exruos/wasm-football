@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: postgres-db
+  name: football-db
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: postgres-db
+      app: football-db
   template:
     metadata:
       labels:
-        app: postgres-db
+        app: football-db
     spec:
       containers:
-        - name: postgres-db-clean-service
+        - name: football-db
           image: registry.gitlab.com/envite-consulting/sustainable-software-architecture/football-databases:postgres-17.7
           args: ["-p", "5438"]
           env:

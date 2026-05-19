@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: football-container-rust
+  name: football
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: football-container-rust
+      app: football
   template:
     metadata:
       labels:
-        app: football-container-rust
+        app: football
     spec:
       containers:
         - name: app

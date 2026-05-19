@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: football-container-rust
+  name: football
 spec:
   selector:
-    app: football-container-rust
+    app: football
   ports:
     - protocol: TCP
       port: 80

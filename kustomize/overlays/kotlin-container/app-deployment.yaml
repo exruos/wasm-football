@@ -1,28 +1,26 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: spring-clean-football
-  labels:
-    app: spring-clean-football
+  name: football
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: spring-clean-football
+      app: football
   template:
     metadata:
       labels:
-        app: spring-clean-football
+        app: football
     spec:
       containers:
-      - name: spring-clean-football
+      - name: football
         image: registry.gitlab.com/envite-consulting/sustainable-software-architecture/isaqb-green/spring-clean-football-service:0.0.1-SNAPSHOT
         ports:
         - containerPort: 8080
           name: http
         env:
         - name: SPRING_DATASOURCE_URL
-          value: "jdbc:postgresql://postgres-db:5438/postgres"
+          value: "jdbc:postgresql://football-db:5438/postgres"
         - name: THC_PATH
           value: "/actuator/health"
         - name: THC_PORT
