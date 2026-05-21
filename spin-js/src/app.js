@@ -7,7 +7,7 @@ import { registerTeamRoutes } from './routes/teams.js';
 export function createApp(dependencies) {
     const router = AutoRouter();
 
-    registerHealthRoutes(router);
+    registerHealthRoutes(router, dependencies);
     registerPlayerRoutes(router, dependencies);
     registerTeamRoutes(router, dependencies);
     registerMatchRoutes(router, dependencies);

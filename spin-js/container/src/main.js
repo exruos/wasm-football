@@ -29,6 +29,28 @@ const server = createServer(async (request, response) => {
     }
 });
 
+let isShuttingDown = false;
+
+const gracefulShutdown = async () => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
+    console.log('Received shutdown signal, closing server gracefully...');
+    server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
+
+    // Force shutdown after 30s
+    setTimeout(() => {
+        console.error('Forced shutdown after 30s timeout');
+        process.exit(1);
+    }, 30000);
+};
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
 server.listen(port, host, () => {
     console.log(`football-js container listening on http://${host}:${port}`);
 });
