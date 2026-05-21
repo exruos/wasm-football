@@ -6,6 +6,7 @@ mod teams;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use axum::extract::State;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPool;
@@ -47,6 +48,7 @@ where
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/ready", get(ready))
         .route("/players/{id}", get(players::get_player_by_id))
         .route(
             "/players/record/{id}",
@@ -67,4 +69,19 @@ pub fn router(state: AppState) -> Router {
 
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { status: "ok" })
+}
+
+async fn ready(State(state): State<AppState>) -> impl IntoResponse {
+    let res = sqlx::query_scalar::<_, i32>("SELECT 1")
+        .fetch_one(&state.pool)
+        .await;
+
+    match res {
+        Ok(1) => (StatusCode::OK, Json(HealthResponse { status: "ok" })).into_response(),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(HealthResponse { status: "db-error" }),
+        )
+        .into_response(),
+    }
 }

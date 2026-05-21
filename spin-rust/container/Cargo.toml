@@ -9,7 +9,7 @@ edition = "2024"
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true, features = ["tokio", "http1", "json", "query"] }
-tokio = { version = "1.5", features = ["macros", "rt-multi-thread", "net"] }
+tokio = { version = "1.5", features = ["macros", "rt-multi-thread", "net", "signal"] }
 chrono = { workspace = true }
 football-shared = { workspace = true }
 serde = { workspace = true }
