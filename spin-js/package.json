@@ -9,7 +9,7 @@
     "build:debug": "node build.mjs && mkdirp dist && j2w -d -i build/bundle.js --initLocation http://football-js.localhost -o dist/football-js.wasm",
     "start:node": "node container/src/main.js",
     "start:bun": "bun container/src/main.js",
-    "start:deno": "deno run --allow-net --allow-env container/src/main.ts",
+    "start:deno": "deno run --allow-net --allow-env container/src/main.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
