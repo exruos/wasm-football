@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: football-db
-          image: registry.gitlab.com/envite-consulting/sustainable-software-architecture/football-databases:postgres-17.7
+          image: localhost:5000/football-db:postgres-18.4
           args: ["-p", "5438"]
           env:
             - name: POSTGRES_PASSWORD

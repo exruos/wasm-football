@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: football-kotlin-container
-        image: registry.gitlab.com/envite-consulting/sustainable-software-architecture/isaqb-green/spring-clean-football-service:0.0.1-SNAPSHOT
+        image: localhost:5000/football-spring:latest
         ports:
         - containerPort: 8080
           name: http
@@ -28,9 +28,11 @@ spec:
         - name: MATCH_REST_TEAM_NAME_STRATEGY
           value: "POJO_WITHOUT_CACHE"
         - name: MATCH_REST_TEAM_SERVICE_BASE_URL
-          value: "http://service:8080"
+          value: "http://localhost:8080"
         - name: SPRING_FLYWAY_ENABLED
           value: "false"
+        - name: JAVA_TOOL_OPTIONS
+          value: "-Djavax.net.ssl.sessionCacheSize=10000 -Djdk.tls.client.enableSessionTicketExtension=true -Djdk.tls.server.enableSessionTicketExtension=true"
         livenessProbe:
           exec:
             command: ["/workspace/health-check"]
