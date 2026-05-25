@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: football-rust-container
+  name: football-rust-axum
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: football-rust-container
+      app: football-rust-axum
   template:
     metadata:
       labels:
-        app: football-rust-container
+        app: football-rust-axum
     spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: app
-          image: localhost:5000/football-rust-container:latest
+          image: localhost:5000/football-rust:axum
           ports:
             - containerPort: 8080
           readinessProbe:

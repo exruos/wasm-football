@@ -3,7 +3,7 @@ kind: SpinApp
 metadata:
   name: football-rust-wasm
 spec:
-  image: localhost:5000/football-rust-wasm:latest
+  image: localhost:5000/football-rust:wasm
   executor: containerd-shim-spin
   replicas: 2
   variables:

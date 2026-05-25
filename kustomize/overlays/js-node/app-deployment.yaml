@@ -15,7 +15,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: app
-          image: localhost:5000/football-js-node:latest
+          image: localhost:5000/football-js:node
           ports:
             - containerPort: 8080
           readinessProbe:
