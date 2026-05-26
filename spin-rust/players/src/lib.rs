@@ -21,6 +21,13 @@ fn handle_request(req: Request) -> Response {
     let mut router = Router::new();
 
     register_routes(&mut router);
+    router.any("/*", |_: Request, _| {
+        Ok(Response::builder()
+            .status(404)
+            .header("Content-Type", "application/json")
+            .body("{\"status\":404,\"error\":\"Not Found\"}".to_string())
+            .build())
+    });
 
     router.handle(req)
 }

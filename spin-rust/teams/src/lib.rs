@@ -3,10 +3,10 @@ mod db;
 use anyhow::{Ok, Result};
 use football_shared::domain::teams::TeamRecord;
 use spin_sdk::http::{Params, Request, Response, Router};
-use spin_sdk::variables;
 #[cfg(feature = "spin-component")]
 use spin_sdk::http_component;
 use spin_sdk::pg4::Connection;
+use spin_sdk::variables;
 
 use crate::db::{team_attributes_from_row, team_from_row};
 
@@ -22,6 +22,13 @@ fn handle_request(req: Request) -> Response {
     let mut router = Router::new();
 
     register_routes(&mut router);
+    router.any("/*", |_: Request, _| {
+        Ok(Response::builder()
+            .status(404)
+            .header("Content-Type", "application/json")
+            .body("{\"status\":404,\"error\":\"Not Found\"}".to_string())
+            .build())
+    });
 
     router.handle(req)
 }
@@ -32,9 +39,7 @@ fn get_team_by_id(_req: Request, params: Params) -> Result<Response> {
 
     let id = params.get("id").unwrap_or("0").parse::<i32>()?;
 
-    let rowset = conn.query(
-        "SELECT * FROM team WHERE id = $1", 
-        &[id.into()])?;
+    let rowset = conn.query("SELECT * FROM team WHERE id = $1", &[id.into()])?;
 
     match rowset.rows().next() {
         None => Ok(Response::builder().status(404).build()),
@@ -56,9 +61,7 @@ fn get_team_by_api_id(_req: Request, params: Params) -> Result<Response> {
 
     let id = params.get("id").unwrap_or("0").parse::<i32>()?;
 
-    let rowset = conn.query(
-        "SELECT * FROM team WHERE team_api_id = $1", 
-        &[id.into()])?;
+    let rowset = conn.query("SELECT * FROM team WHERE team_api_id = $1", &[id.into()])?;
 
     match rowset.rows().next() {
         None => Ok(Response::builder().status(404).build()),

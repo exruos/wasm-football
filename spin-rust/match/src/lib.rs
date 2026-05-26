@@ -5,10 +5,10 @@ use football_shared::domain::matches::{MatchResource, ResultTableRowResource};
 use football_shared::services::result_table::{TableMatch, build_result_table};
 use serde_json::Value;
 use spin_sdk::http::{Method, Params, Request, Response, Router};
-use spin_sdk::variables;
 #[cfg(feature = "spin-component")]
 use spin_sdk::http_component;
 use spin_sdk::pg4::Connection;
+use spin_sdk::variables;
 use url::Url;
 
 use crate::db::match_dto_from_row;
@@ -25,6 +25,13 @@ fn handle_request(req: Request) -> Response {
     let mut router = Router::new();
 
     register_routes(&mut router);
+    router.any("/*", |_: Request, _| {
+        Ok(Response::builder()
+            .status(404)
+            .header("Content-Type", "application/json")
+            .body("{\"status\":404,\"error\":\"Not Found\"}".to_string())
+            .build())
+    });
 
     router.handle(req)
 }
