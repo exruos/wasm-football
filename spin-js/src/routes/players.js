@@ -6,31 +6,45 @@ const SELECT_PLAYER_BY_ID =
 
 export function registerPlayerRoutes(router, { getConnection, parseId }) {
     router.get('/players/record/:id', async ({ id }) => {
-        const connection = getConnection();
-        const rowSet = await connection.query(SELECT_PLAYER_BY_ID, [parseId(id)]);
+        try {
+            const connection = getConnection();
+            const rowSet = await connection.query(SELECT_PLAYER_BY_ID, [parseId(id)]);
 
-        if (!rowSet.rows.length) {
-            return notFound();
+            if (!rowSet.rows.length) {
+                return notFound();
+            }
+
+            const player = playerFromRow(rowSet.rows[0]);
+            const attributesRowSet = await connection.query(
+                'SELECT * FROM player_attributes WHERE player_api_id = $1 AND player_fifa_api_id = $2',
+                [player.apiId, player.fifaApiId],
+            );
+
+            const attributes = attributesRowSet.rows.map(playerAttributesFromRow);
+            return jsonResponse({ player, attributes });
+        } catch (error) {
+            if (error.status === 400) {
+                return jsonResponse({ status: 400, error: error.message }, 400);
+            }
+            throw error;
         }
-
-        const player = playerFromRow(rowSet.rows[0]);
-        const attributesRowSet = await connection.query(
-            'SELECT * FROM player_attributes WHERE player_api_id = $1 AND player_fifa_api_id = $2',
-            [player.apiId, player.fifaApiId],
-        );
-
-        const attributes = attributesRowSet.rows.map(playerAttributesFromRow);
-        return jsonResponse({ player, attributes });
     });
 
     router.get('/players/:id', async ({ id }) => {
-        const connection = getConnection();
-        const rowSet = await connection.query(SELECT_PLAYER_BY_ID, [parseId(id)]);
+        try {
+            const connection = getConnection();
+            const rowSet = await connection.query(SELECT_PLAYER_BY_ID, [parseId(id)]);
 
-        if (!rowSet.rows.length) {
-            return notFound();
+            if (!rowSet.rows.length) {
+                return notFound();
+            }
+
+            return jsonResponse(playerFromRow(rowSet.rows[0]));
+        } catch (error) {
+            if (error.status === 400) {
+                return jsonResponse({ status: 400, error: error.message }, 400);
+            }
+            throw error;
         }
-
-        return jsonResponse(playerFromRow(rowSet.rows[0]));
     });
 }

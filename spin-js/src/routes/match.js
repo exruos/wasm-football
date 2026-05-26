@@ -54,40 +54,54 @@ export function registerMatchRoutes(router, { getConnection, parseId }) {
     });
 
     router.get('/match/team/:id', async ({ id }) => {
-        const connection = getConnection();
-        const parsedId = parseId(id);
-        const rowSet = await connection.query(
-            `${SELECT_MATCH_RESOURCE_FIELDS} WHERE home_team_api_id = $1 OR away_team_api_id = $1`,
-            [parsedId],
-        );
+        try {
+            const connection = getConnection();
+            const parsedId = parseId(id);
+            const rowSet = await connection.query(
+                `${SELECT_MATCH_RESOURCE_FIELDS} WHERE home_team_api_id = $1 OR away_team_api_id = $1`,
+                [parsedId],
+            );
 
-        if (!rowSet.rows.length) {
-            return notFound();
+            if (!rowSet.rows.length) {
+                return notFound();
+            }
+
+            const resources = [];
+            for (const row of rowSet.rows) {
+                const matchDto = matchDtoFromRow(row);
+                const homeTeamName = await resolveTeamName(connection, matchDto.homeTeamApiId ?? 0);
+                const awayTeamName = await resolveTeamName(connection, matchDto.awayTeamApiId ?? 0);
+                resources.push(toMatchResource(matchDto, homeTeamName, awayTeamName));
+            }
+
+            return jsonResponse(resources);
+        } catch (error) {
+            if (error.status === 400) {
+                return jsonResponse({ status: 400, error: error.message }, 400);
+            }
+            throw error;
         }
-
-        const resources = [];
-        for (const row of rowSet.rows) {
-            const matchDto = matchDtoFromRow(row);
-            const homeTeamName = await resolveTeamName(connection, matchDto.homeTeamApiId ?? 0);
-            const awayTeamName = await resolveTeamName(connection, matchDto.awayTeamApiId ?? 0);
-            resources.push(toMatchResource(matchDto, homeTeamName, awayTeamName));
-        }
-
-        return jsonResponse(resources);
     });
 
     router.get('/match/:id', async ({ id }) => {
-        const connection = getConnection();
-        const rowSet = await connection.query(`${SELECT_MATCH_RESOURCE_FIELDS} WHERE id = $1`, [parseId(id)]);
+        try {
+            const connection = getConnection();
+            const rowSet = await connection.query(`${SELECT_MATCH_RESOURCE_FIELDS} WHERE id = $1`, [parseId(id)]);
 
-        if (!rowSet.rows.length) {
-            return notFound();
+            if (!rowSet.rows.length) {
+                return notFound();
+            }
+
+            const matchDto = matchDtoFromRow(rowSet.rows[0]);
+            const homeTeamName = await resolveTeamName(connection, matchDto.homeTeamApiId ?? 0);
+            const awayTeamName = await resolveTeamName(connection, matchDto.awayTeamApiId ?? 0);
+
+            return jsonResponse(toMatchResource(matchDto, homeTeamName, awayTeamName));
+        } catch (error) {
+            if (error.status === 400) {
+                return jsonResponse({ status: 400, error: error.message }, 400);
+            }
+            throw error;
         }
-
-        const matchDto = matchDtoFromRow(rowSet.rows[0]);
-        const homeTeamName = await resolveTeamName(connection, matchDto.homeTeamApiId ?? 0);
-        const awayTeamName = await resolveTeamName(connection, matchDto.awayTeamApiId ?? 0);
-
-        return jsonResponse(toMatchResource(matchDto, homeTeamName, awayTeamName));
     });
 }
