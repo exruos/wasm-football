@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: football-kotlin-spring
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: football-kotlin-spring
@@ -12,31 +12,46 @@ spec:
       labels:
         app: football-kotlin-spring
     spec:
+      terminationGracePeriodSeconds: 30
       containers:
-      - name: football-kotlin-spring
-        image: localhost:5000/football-kotlin:spring
-        ports:
-        - containerPort: 8080
-          name: http
-        env:
-        - name: SPRING_DATASOURCE_URL
-          value: "jdbc:postgresql://football-db:5438/postgres"
-        - name: THC_PATH
-          value: "/actuator/health"
-        - name: THC_PORT
-          value: "8080"
-        - name: MATCH_REST_TEAM_NAME_STRATEGY
-          value: "POJO_WITHOUT_CACHE"
-        - name: MATCH_REST_TEAM_SERVICE_BASE_URL
-          value: "http://localhost:8080"
-        - name: SPRING_FLYWAY_ENABLED
-          value: "false"
-        - name: JAVA_TOOL_OPTIONS
-          value: "-Djavax.net.ssl.sessionCacheSize=10000 -Djdk.tls.client.enableSessionTicketExtension=true -Djdk.tls.server.enableSessionTicketExtension=true"
-        livenessProbe:
-          exec:
-            command: ["/workspace/health-check"]
-          initialDelaySeconds: 15
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 5
+        - name: app
+          image: localhost:5000/football-kotlin:spring
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          env:
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: football-app-secret
+                  key: DB_URL
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://football-db:5438/postgres"
+            - name: THC_PATH
+              value: "/actuator/health"
+            - name: THC_PORT
+              value: "8080"
+            - name: MATCH_REST_TEAM_NAME_STRATEGY
+              value: "POJO_WITHOUT_CACHE"
+            - name: MATCH_REST_TEAM_SERVICE_BASE_URL
+              value: "http://football-kotlin-spring:8080"
+            - name: SPRING_FLYWAY_ENABLED
+              value: "false"
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Djavax.net.ssl.sessionCacheSize=10000 -Djdk.tls.client.enableSessionTicketExtension=true -Djdk.tls.server.enableSessionTicketExtension=true"
