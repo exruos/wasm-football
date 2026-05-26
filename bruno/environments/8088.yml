@@ -1,0 +1,4 @@
+name: "8088"
+variables:
+  - name: baseUrl
+    value: http://localhost:8088

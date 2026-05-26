@@ -1,0 +1,15 @@
+info:
+  name: players-id-not-found
+  type: http
+  seq: 10
+
+http:
+  method: GET
+  url: "{{baseUrl}}/players/999999"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
