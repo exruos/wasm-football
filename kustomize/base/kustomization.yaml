@@ -8,3 +8,4 @@ resources:
   - db-deployment.yaml
   - db-service.yaml
   - app-secret.yaml
+  - ingress.yaml

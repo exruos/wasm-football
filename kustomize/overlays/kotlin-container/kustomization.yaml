@@ -7,3 +7,15 @@ resources:
   - ../../base
   - app-deployment.yaml
   - app-service.yaml
+
+replacements:
+  - source:
+      kind: Service
+      name: football-kotlin-spring
+      fieldPath: metadata.name
+    targets:
+      - select:
+          kind: Ingress
+          name: football-app
+        fieldPaths:
+          - spec.rules.0.http.paths.0.backend.service.name

@@ -16,6 +16,7 @@ spec:
       containers:
         - name: app
           image: localhost:5000/football-kotlin:spring
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
               name: http

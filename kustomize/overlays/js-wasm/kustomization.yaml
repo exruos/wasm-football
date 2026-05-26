@@ -18,3 +18,13 @@ replacements:
           name: football-js-wasm
         fieldPaths:
           - spec.variables.0.value
+  - source:
+      kind: SpinApp
+      name: football-js-wasm
+      fieldPath: metadata.name
+    targets:
+      - select:
+          kind: Ingress
+          name: football-app
+        fieldPaths:
+          - spec.rules.0.http.paths.0.backend.service.name
