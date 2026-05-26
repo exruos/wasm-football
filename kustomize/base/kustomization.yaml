@@ -7,5 +7,6 @@ resources:
   - namespace.yaml
   - db-deployment.yaml
   - db-service.yaml
+  - db-pgbouncer.yaml
   - app-secret.yaml
   - ingress.yaml

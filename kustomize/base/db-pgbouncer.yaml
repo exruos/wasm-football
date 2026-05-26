@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: football-db-pgbouncer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: football-db-pgbouncer
+  template:
+    metadata:
+      labels:
+        app: football-db-pgbouncer
+    spec:
+      containers:
+        - name: football-db-pgbouncer
+          image: edoburu/pgbouncer:v1.25.1-p0
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: football-app-secret
+                  key: DB_URL_DIRECT
+            - name: DB_HOST
+              value: football-db
+            - name: DB_PORT
+              value: "5438"
+            - name: DB_NAME
+              value: postgres
+            - name: DB_USER
+              value: postgres
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: football-app-secret
+                  key: POSTGRES_PASSWORD
+            - name: POOL_MODE
+              value: transaction
+            - name: MAX_CLIENT_CONN
+              value: "1000"
+            - name: DEFAULT_POOL_SIZE
+              value: "60"
+            - name: MIN_POOL_SIZE
+              value: "20"
+            - name: RESERVE_POOL_SIZE
+              value: "20"
+            - name: RESERVE_POOL_TIMEOUT
+              value: "2"
+            - name: SERVER_RESET_QUERY
+              value: DISCARD ALL
+            - name: SERVER_IDLE_TIMEOUT
+              value: "300"
+            - name: QUERY_WAIT_TIMEOUT
+              value: "120"
+            - name: AUTH_TYPE
+              value: scram-sha-256
+            - name: AUTH_USER
+              value: postgres
+            - name: AUTH_QUERY
+              value: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
+          ports:
+            - containerPort: 5432
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres", "-d", "postgres"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres", "-d", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: football-db-pgbouncer
+spec:
+  selector:
+    app: football-db-pgbouncer
+  ports:
+    - protocol: TCP
+      port: 5438
+      targetPort: 5432
