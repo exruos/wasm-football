@@ -26,7 +26,8 @@ spec:
             - containerPort: 5438
           resources:
             requests:
-              memory: "128Mi"
+              memory: "1Gi"
+              cpu: "250m"
           livenessProbe:
             exec:
               command: ["pg_isready", "-p", "5438", "-U", "postgres"]
