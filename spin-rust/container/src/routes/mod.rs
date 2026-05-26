@@ -21,6 +21,12 @@ struct HealthResponse {
     status: &'static str,
 }
 
+#[derive(Serialize)]
+struct ErrorResponse {
+    status: u16,
+    error: &'static str,
+}
+
 #[derive(Deserialize)]
 struct ResultTableQuery {
     season: Option<String>,
@@ -63,7 +69,15 @@ pub fn router(state: AppState) -> Router {
             "/match/result-table",
             get(matches::get_result_table_by_season_and_league),
         )
-        .fallback(|| async { (StatusCode::NOT_FOUND, "Not Found") })
+        .fallback(|| async {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    status: 404,
+                    error: "Not Found",
+                }),
+            )
+        })
         .with_state(state)
 }
 
