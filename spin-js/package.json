@@ -16,6 +16,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@types/node": "^25.9.1",
     "esbuild": "^0.28.0",
     "mkdirp": "^3.0.1"
   },
