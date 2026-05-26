@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('All', 'JsContainer', 'RustContainer', 'JsWasm', 'RustWasm', 'RustWasmMonolith', 'KotlinSpring')]
+    [ValidateSet('All', 'JsNode', 'RustAxum', 'JsWasm', 'RustWasm', 'RustWasmMonolith', 'KotlinSpring')]
     [Parameter(Mandatory = $true)]
     [string]$Target
 )
@@ -105,7 +105,7 @@ switch ($Target) {
             -RegistryImage 'localhost:5000/football-rust:wasm-mono'
     }
 
-    'JsContainer' {
+    'JsNode' {
         Invoke-DockerPublish `
             -WorkingDirectory (Join-Path $repoRoot 'spin-js') `
             -DockerfilePath 'container/Dockerfile' `
@@ -113,7 +113,7 @@ switch ($Target) {
             -RegistryImage 'localhost:5000/football-js:node'
     }
 
-    'RustContainer' {
+    'RustAxum' {
         Invoke-DockerPublish `
             -WorkingDirectory (Join-Path $repoRoot 'spin-rust') `
             -DockerfilePath 'container/Dockerfile' `

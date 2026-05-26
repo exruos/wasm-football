@@ -11,7 +11,9 @@ function getSqlClient() {
     }
 
     const connectionString = process.env.DB_URL ?? DB_URL_DEFAULT;
-    sqlClient = postgres(connectionString);
+    sqlClient = postgres(connectionString, {
+        max: process.env.DB_POOL_SIZE ? parseInt(process.env.DB_POOL_SIZE) : 10,
+    });
     return sqlClient;
 }
 
