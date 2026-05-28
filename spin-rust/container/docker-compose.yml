@@ -3,7 +3,7 @@ name: football-rust
 services:
   db:
     platform: linux/amd64
-    image: registry.gitlab.com/envite-consulting/sustainable-software-architecture/football-databases:postgres-17.7
+    image: localhost:5000/football-db:postgres-18.4
     restart: always
     shm_size: 128mb
     environment:
