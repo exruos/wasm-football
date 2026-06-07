@@ -11,10 +11,10 @@
             system = "x86_64-linux";
             modules = [
                 disko.nixosModules.disko
-                ./modules/k3s.nix
-                ./modules/monitoring.nix
-                ./modules/registry.nix
-                ./configuration.nix
+                ./nixos/k3s.nix
+                ./nixos/monitoring.nix
+                ./nixos/registry.nix
+                ./nixos/configuration.nix
                 nixos-facter-modules.nixosModules.facter
                 {
                     config.facter.reportPath = 
@@ -31,11 +31,11 @@
             system = "x86_64-linux";
             modules = [
                 disko.nixosModules.disko
-                ./modules/vm.nix
-                ./modules/k3s.nix
-                ./modules/monitoring.nix
-                ./modules/registry.nix
-                ./configuration.nix
+                ./nixos/vm.nix
+                ./nixos/k3s.nix
+                ./nixos/monitoring.nix
+                ./nixos/registry.nix
+                ./nixos/configuration.nix
                 nixos-facter-modules.nixosModules.facter
                 {
                     config.facter.reportPath = 
