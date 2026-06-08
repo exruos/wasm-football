@@ -1,20 +1,26 @@
+{ lib, ... }:
 {
   disko.devices = {
     disk = {
       my-disk = {
-        device = "/dev/sda";
+        device = lib.mkDefault "/dev/sda";
         type = "disk";
         content = {
           type = "gpt";
           partitions = {
-            ESP = {
+            boot = {
+              name = "boot";
+              type = "EF02";
+              size = "2M";
+            };
+            esp = {
+              name = "ESP";
               type = "EF00";
               size = "500M";
               content = {
                 type = "filesystem";
                 format = "vfat";
                 mountpoint = "/boot";
-                mountOptions = [ "umask=0077" ];
               };
             };
             root = {
