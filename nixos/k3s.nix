@@ -8,6 +8,9 @@
   services.k3s = {
     enable = true;
     role = "server";
+    extraFlags = [ 
+      "--tls-san=hetzner-metal"
+    ];
   };
 
   environment.etc."rancher/k3s/registries.yaml".text = ''
