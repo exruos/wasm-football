@@ -2,6 +2,9 @@ param(
     [ValidateSet('All', 'JsNode', 'RustAxum', 'JsWasm', 'RustWasm', 'RustWasmMonolith', 'KotlinSpring')]
     [Parameter(Mandatory = $true)]
     [string]$Target
+    ,
+    [Parameter(Mandatory = $false)]
+    [string]$RegistryHost = 'localhost:5000'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -84,25 +87,25 @@ switch ($Target) {
             -WorkingDirectory (Join-Path $repoRoot 'spin-js') `
             -DockerfilePath 'container/Dockerfile' `
             -LocalImage 'football-js:node' `
-            -RegistryImage 'localhost:5000/football-js:node'
+            -RegistryImage "$RegistryHost/football-js:node"
 
         Invoke-DockerPublish `
             -WorkingDirectory (Join-Path $repoRoot 'spin-rust') `
             -DockerfilePath 'container/Dockerfile' `
             -LocalImage 'football-rust:axum' `
-            -RegistryImage 'localhost:5000/football-rust:axum'
+            -RegistryImage "$RegistryHost/football-rust:axum"
 
         Invoke-SpinPublish `
             -WorkingDirectory (Join-Path $repoRoot 'spin-js') `
-            -RegistryImage 'localhost:5000/football-js:wasm'
+            -RegistryImage "$RegistryHost/football-js:wasm"
 
         Invoke-SpinPublish `
             -WorkingDirectory (Join-Path $repoRoot 'spin-rust') `
-            -RegistryImage 'localhost:5000/football-rust:wasm'
+            -RegistryImage "$RegistryHost/football-rust:wasm"
 
         Invoke-SpinPublish `
             -WorkingDirectory (Join-Path $repoRoot 'spin-rust') `
-            -RegistryImage 'localhost:5000/football-rust:wasm-mono'
+            -RegistryImage "$RegistryHost/football-rust:wasm-mono"
     }
 
     'JsNode' {
@@ -110,7 +113,7 @@ switch ($Target) {
             -WorkingDirectory (Join-Path $repoRoot 'spin-js') `
             -DockerfilePath 'container/Dockerfile' `
             -LocalImage 'football-js:node' `
-            -RegistryImage 'localhost:5000/football-js:node'
+            -RegistryImage "$RegistryHost/football-js:node"
     }
 
     'RustAxum' {
@@ -118,31 +121,32 @@ switch ($Target) {
             -WorkingDirectory (Join-Path $repoRoot 'spin-rust') `
             -DockerfilePath 'container/Dockerfile' `
             -LocalImage 'football-rust:axum' `
-            -RegistryImage 'localhost:5000/football-rust:axum'
+            -RegistryImage "$RegistryHost/football-rust:axum"
     }
 
     'JsWasm' {
         Invoke-SpinPublish `
             -WorkingDirectory (Join-Path $repoRoot 'spin-js') `
-            -RegistryImage 'localhost:5000/football-js:wasm'
+            -RegistryImage "$RegistryHost/football-js:wasm"
     }
 
     'RustWasm' {
         Invoke-SpinPublish `
             -WorkingDirectory (Join-Path $repoRoot 'spin-rust') `
-            -RegistryImage 'localhost:5000/football-rust:wasm'
+            -RegistryImage "$RegistryHost/football-rust:wasm"
     }
 
     'RustWasmMonolith' {
-        Write-Host 'Publishing Spin monolith app localhost:5000/football-rust:wasm-mono from spin-rust'
+        $RegistryImage = "$RegistryHost/football-rust:wasm-mono"
+        Write-Host "Publishing Spin monolith app $RegistryImage from spin-rust"
         Invoke-CheckedCommand -WorkingDirectory (Join-Path $repoRoot 'spin-rust') -Command {
-            spin registry push --build --from spin.monolith.toml localhost:5000/football-rust:wasm-mono --insecure
+            spin registry push --build --from spin.monolith.toml $RegistryImage --insecure
         }
     }
 
     'KotlinSpring' {
-        $LocalImage = 'localhost:5000/football-kotlin:spring'
-        $RegistryImage = 'localhost:5000/football-kotlin:spring'
+        $LocalImage = 'football-kotlin:spring'
+        $RegistryImage = "$RegistryHost/football-kotlin:spring"
         Write-Host "Tagging $LocalImage as $RegistryImage"
         docker tag $LocalImage $RegistryImage
 
