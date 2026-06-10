@@ -56,6 +56,8 @@ function Invoke-DockerPublish {
 
     Write-Host "Pushing $RegistryImage"
     docker push $RegistryImage
+
+    Write-Host "Done publishing $RegistryImage`n"
 }
 
 function Invoke-SpinPublish {
@@ -64,12 +66,15 @@ function Invoke-SpinPublish {
         [string]$WorkingDirectory,
 
         [Parameter(Mandatory = $true)]
-        [string]$RegistryImage
+        [string]$RegistryImage,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Toml = 'spin.toml'
     )
 
     Write-Host "Publishing Spin app $RegistryImage from $WorkingDirectory"
     Invoke-CheckedCommand -WorkingDirectory $WorkingDirectory -Command {
-        spin registry push --build $RegistryImage --insecure
+        spin registry push --build $RegistryImage --from $Toml --insecure
     }
 }
 
@@ -105,7 +110,8 @@ switch ($Target) {
 
         Invoke-SpinPublish `
             -WorkingDirectory (Join-Path $repoRoot 'spin-rust') `
-            -RegistryImage "$RegistryHost/football-rust:wasm-mono"
+            -RegistryImage "$RegistryHost/football-rust:wasm-mono" `
+            -Toml 'spin.monolith.toml'
     }
 
     'JsNode' {
@@ -137,11 +143,10 @@ switch ($Target) {
     }
 
     'RustWasmMonolith' {
-        $RegistryImage = "$RegistryHost/football-rust:wasm-mono"
-        Write-Host "Publishing Spin monolith app $RegistryImage from spin-rust"
-        Invoke-CheckedCommand -WorkingDirectory (Join-Path $repoRoot 'spin-rust') -Command {
-            spin registry push --build --from spin.monolith.toml $RegistryImage --insecure
-        }
+        Invoke-SpinPublish `
+            -WorkingDirectory (Join-Path $repoRoot 'spin-rust') `
+            -RegistryImage "$RegistryHost/football-rust:wasm-mono" `
+            -Toml 'spin.monolith.toml'
     }
 
     'KotlinSpring' {
