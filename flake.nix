@@ -12,7 +12,6 @@
             modules = [
                 disko.nixosModules.disko
                 ./nixos/k3s.nix
-                ./nixos/monitoring.nix
                 ./nixos/registry.nix
                 ./nixos/configuration.nix
                 nixos-facter-modules.nixosModules.facter
@@ -33,7 +32,6 @@
                 disko.nixosModules.disko
                 ./nixos/vm.nix
                 ./nixos/k3s.nix
-                ./nixos/monitoring.nix
                 ./nixos/registry.nix
                 ./nixos/configuration.nix
                 nixos-facter-modules.nixosModules.facter
