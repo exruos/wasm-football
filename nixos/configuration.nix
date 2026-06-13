@@ -1,6 +1,7 @@
 {
   lib,
   pkgs,
+  hostname,
   ...
 }:
 {
@@ -25,7 +26,7 @@
     pkgs.gitMinimal
   ];
 
-  networking.hostName = "nixos";
+  networking.hostName = hostname;
 
   users.users.root.openssh.authorizedKeys.keys =
   [

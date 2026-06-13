@@ -6,9 +6,10 @@
 
     outputs = { nixpkgs, disko, nixos-facter-modules,  ... }:
     {
-         # nixos-anywhere --flake .#bench --generate-hardware-config nixos-facter facter.json <hostname>
+         # nixos-anywhere --flake .#bench --generate-hardware-config nixos-facter facter-bench.json <hostname>
         nixosConfigurations.bench = nixpkgs.lib.nixosSystem{
             system = "x86_64-linux";
+            specialArgs = { hostname = "nixos-bench"; };
             modules = [
                 disko.nixosModules.disko
                 ./nixos/k3s.nix
@@ -17,30 +18,30 @@
                 nixos-facter-modules.nixosModules.facter
                 {
                     config.facter.reportPath = 
-                        if builtins.pathExists ./facter.json then
-                            ./facter.json
+                        if builtins.pathExists ./facter-bench.json then
+                            ./facter-bench.json
                         else
-                            throw "Have you forgotten to run nixos-anywhere with `--generate-hardware-config nixos-facter ./facter.json`?";
+                            throw "Have you forgotten to run nixos-anywhere with `--generate-hardware-config nixos-facter ./facter-bench.json`?";
                 }
             ];
             specialArgs = { inherit disko; };
         };
         
+         # nixos-anywhere --flake .#vm --generate-hardware-config nixos-facter facter-vm.json <hostname>
         nixosConfigurations.vm = nixpkgs.lib.nixosSystem {
             system = "x86_64-linux";
+            specialArgs = { hostname = "nixos-vm"; };
             modules = [
                 disko.nixosModules.disko
                 ./nixos/vm.nix
-                ./nixos/k3s.nix
-                ./nixos/registry.nix
                 ./nixos/configuration.nix
                 nixos-facter-modules.nixosModules.facter
                 {
                     config.facter.reportPath = 
-                        if builtins.pathExists ./facter.json then
-                            ./facter.json
+                        if builtins.pathExists ./facter-vm.json then
+                            ./facter-vm.json
                         else
-                            throw "Have you forgotten to run nixos-anywhere with `--generate-hardware-config nixos-facter ./facter.json`?";
+                            throw "Have you forgotten to run nixos-anywhere with `--generate-hardware-config nixos-facter ./facter-vm.json`?";
                 }
             ];
             specialArgs = { inherit disko; };   
