@@ -1,0 +1,28 @@
+grafana:
+  enabled: false
+
+vmsingle:
+  enabled: false
+
+vmalert:
+  enabled: false
+
+defaultDashboards:
+  enabled: false
+
+kube-state-metrics:
+  enabled: true
+
+prometheus-node-exporter:
+  enabled: true
+
+vmagent:
+  enabled: true
+  global:
+     scrape_interval: 15s
+  spec:
+    externalLabels:
+      cluster: bench
+    remoteWrite:
+      - url: "http://188.245.53.126:8428/api/v1/write"
+    replicaCount: 1

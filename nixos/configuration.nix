@@ -28,8 +28,7 @@
 
   networking.hostName = hostname;
 
-  users.users.root.openssh.authorizedKeys.keys =
-  [
+  users.users.root.openssh.authorizedKeys.keys = [
     # change this to your ssh key
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAWYJS0TZ/pFvaAaYtjdHRDU9u6zgibfEB0lMcKg8bUD"
   ];
