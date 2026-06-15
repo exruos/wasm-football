@@ -1,6 +1,6 @@
 param (
     [Parameter(Mandatory = $true)]
-    [ValidateSet("wasm-rust", "wasm-js", "container-axum", "container-node", "container-spring")]
+    [ValidateSet("wasm-rust", "wasm-js", "oci-axum", "oci-node", "oci-spring")]
     [string]$Target,
 
     [Parameter(Mandatory = $true)]
@@ -15,16 +15,18 @@ param (
 
     # The name of your K8s deployment to scale down during cold starts
     [string]$DeploymentName = "football-rust", # TODO look up
-    [string]$Namespace = "football"
+    [string]$Namespace = "football",
+
+    [string]$VictoriaMetricsUrl = "http://hetzner-vm:8428"
 )
 
 # --- Extract metadata from the Target parameter ---
 $Parts = $Target -Split '-'
-$Runtime = $Parts[0]   # "wasm" or "container"
+$Runtime = $Parts[0]   # "wasm" or "oci"
 $Framework = $Parts[1]   # "rust", "js", "axum", "node", or "spring"
 
 # --- Global Configurations ---
-$PrometheusUrl = "http://hetzner-vm:8428/api/v1/write"
+$PrometheusUrl = "$VictoriaMetricsUrl/api/v1/write"
 $env:K6_PROMETHEUS_RW_SERVER_URL = $PrometheusUrl
 $ScriptName = "load-test.js"
 
@@ -70,10 +72,15 @@ for ($i = 1; $i -le $Replays; $i++) {
     $Timestamp = (Get-Date -UFormat %s) -replace '\..*'
     $RunId = "$Runtime-$Framework-$Scenario-$Endpoint-r$i-$Timestamp"
     $JsonFilename = "metrics-$RunId.json"
+    $VmJsonFilename = "vm-metrics-$RunId.json"
 
+    
     Write-Host "`n[$(Get-Date -Format 'HH:mm:ss')] Starting Replay $i of $Replays (ID: $RunId)..." -ForegroundColor Green
 
-    # Execute k6
+    # 1. CAPTURE EXACT START TIME (RFC3339 format required by VictoriaMetrics)
+    $StartTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+    # 2. RUN BENCHMARK
     k6 run `
         -o experimental-prometheus-rw `
         -o json=$JsonFilename `
@@ -85,6 +92,33 @@ for ($i = 1; $i -le $Replays; $i++) {
         --tag thesis_iteration=$i `
         --tag run_id=$RunId `
         $ScriptName
+
+    # 3. CAPTURE EXACT END TIME (Add a 2-second pad to catch late-flushing metrics)
+    Start-Sleep -Seconds 2
+    $EndTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+    # 4. EXPORT RAW DATABASE METRICS FOR THIS SPECIFIC TIMEFRAME
+    Write-Host "[Exporting Data] Fetching raw window from VictoriaMetrics..." -ForegroundColor Cyan
+
+    # We target metrics that carry our specific runtime label to keep the JSON clean
+    $MatchFilters = @(
+        "{thesis_scenario=`"$Scenario`",run_id=`"$RunId`"}", # Catch all k6 metrics
+        "{namespace=`"$Namespace`"}",                       # Catch all pod CPU/RAM metrics
+        "{__name__=~`^kepler_.*`}",                         # Catch all Kepler energy metrics
+        "{__name__=~`^node_rapl_.*`}"                       # Catch raw node RAPL/DRAM metrics
+    )
+
+    $UrlParams = ""
+    foreach ($Filter in $MatchFilters) {
+        $UrlParams += "&match[]=" + [Uri]::EscapeDataString($Filter)
+    }
+
+    $ExportUrl = "$VictoriaMetricsUrl/api/v1/export?start=$StartTime&end=$EndTime$UrlParams"
+
+    # Use PowerShell's native Invoke-WebRequest to save the JSON stream
+    Invoke-WebRequest -Uri $ExportUrl -OutFile $VmJsonFilename
+
+    Write-Host "[Exporting Data] Saved database snapshot to $VmJsonFilename" -ForegroundColor Green
 
     # --- POST-RUN COOLDOWN ---
     if ($i -lt $Replays) {
