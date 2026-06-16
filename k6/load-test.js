@@ -1,5 +1,7 @@
 import http from 'k6/http';
 import { sleep } from 'k6';
+import { sharedArray } from 'k6/data';
+import { randomItem } from 'https://jslib.k6.io/k6-utils/1.6.0/index.js';
 
 const seasons = [
     "2012/2013",
@@ -26,8 +28,13 @@ const leagues = [
     "Switzerland Super league"
 ];
 
-const currentScenario = __ENV.thesis_scenario;
-const currentEndpoint = __ENV.thesis_endpoint;
+const teamIdPool = new SharedArray('team IDs', function () {
+  return JSON.parse(open('./team-ids.json'));
+});
+
+const currentScenario = __ENV.scenario;
+const currentEndpoint = __ENV.endpoint;
+const baseUrl = 'http://hetzner-metal';
 
 export let options = {
     discardResponseBodies: true,
@@ -35,15 +42,18 @@ export let options = {
 };
 
 const safetyThresholds = {
-  http_req_failed: [{ threshold: 'rate<0.02', abortOnFail: true }],
-  http_req_duration: [{ threshold: 'p(95)<2000', abortOnFail: true }],
+    http_req_failed: [{ threshold: 'rate<0.02', abortOnFail: true }],
+    http_req_duration: [{ threshold: 'p(95)<2000', abortOnFail: true }],
 };
 
 
 if (currentScenario === 'coldstart') {
+    options.thresholds = {
+        http_req_failed: ['rate>=0'], // prevent fail on connection errors
+    }
     options.scenarios.coldstart_profile = {
         executor: 'per-vu-iterations',
-        vus: 50,          // Number of VUs to simulate concurrent cold starts
+        vus: 1,
         iterations: 1,
         maxDuration: '30s',
     };
@@ -77,18 +87,41 @@ if (currentScenario === 'coldstart') {
 }
 
 export default function () {
-    const baseUrl = 'http://thesis-ingress-target';
-    let targetUrl = '';
+    let response;
+    let targetId = randomItem(teamIdPool);
 
-    // TODO: randomize endpoints based on other scripts
-    if (currentEndpoint === 'simple') {
-        targetUrl = `${baseUrl}/players/42`;
-    } else if (currentEndpoint === 'lookup') {
-        targetUrl = `${baseUrl}/match/team/99`;
-    } else if (currentEndpoint === 'aggregate') {
-        targetUrl = `${baseUrl}/match/result-table?season=2026&leagueName=Bundesliga`;
+    switch (currentEndpoint) {
+
+        case 'simple':
+            // Workload Class: Simple read (Used for Coldstart / Minimal overhead)
+            response = http.get(`${baseUrl}/players/1`);
+            break;
+
+        case 'detailed':
+            // Workload Class: Detailed read (Used for Scaling / Heavy processing)
+            response = http.get(`${baseUrl}/teams/record/${targetId}`);
+            break;
+
+        case 'lookup':
+            // Workload Class: Lookup read (Used for Scaling / Nested DB queries)
+            response = http.get(`${baseUrl}/match/team/${targetId}`);
+            break;
+
+        case 'aggregate':
+            // Workload Class: Aggregate read (Used for Steady-State Baseline)
+            // Picks randomized parameters on every single request to bypass database caches
+            let randomSeason = encodeURIComponent(randomItem(seasons));
+            let randomLeague = encodeURIComponent(randomItem(leagues));
+
+            response = http.get(`${baseUrl}/match/result-table?season=${randomSeason}&leagueName=${randomLeague}`);
+            break;
+
+        default:
+            console.error(`Unknown scenario/endpoint variable provided: "${currentEndpoint}"`);
+            break;
     }
 
-    http.get(targetUrl);
-    sleep(0.01);
+    check(response, {
+        'status is 200': (r) => r.status === 200,
+    });
 }

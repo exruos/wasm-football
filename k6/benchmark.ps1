@@ -8,7 +8,7 @@ param (
     [string]$Scenario,
 
     [Parameter(Mandatory = $true)]
-    [ValidateSet("simple", "lookup", "aggregate")]
+    [ValidateSet("simple", "detailed", "lookup", "aggregate")]
     [string]$Endpoint,
 
     [int]$Replays = 5,
@@ -80,21 +80,26 @@ for ($i = 1; $i -le $Replays; $i++) {
     # 1. CAPTURE EXACT START TIME (RFC3339 format required by VictoriaMetrics)
     $StartTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
+    # 1.1 scale the deployment back up immediately before the run to trigger the startup sequence
+    if ($Scenario -eq "coldstart") {
+        kubectl scale deployment $DeploymentName --replicas=1 -n $Namespace | Out-Null
+    }
+
     # 2. RUN BENCHMARK
     k6 run `
         -o experimental-prometheus-rw `
         -o json=$JsonFilename `
-        --env thesis_scenario=$Scenario `
-        --tag thesis_runtime=$Runtime `
-        --tag thesis_framework=$Framework `
-        --tag thesis_scenario=$Scenario `
-        --tag thesis_endpoint=$Endpoint `
-        --tag thesis_iteration=$i `
-        --tag run_id=$RunId `
+        --env scenario=$Scenario `
+        --env endpoint=$Endpoint `
+        --tag runtime=$Runtime `
+        --tag framework=$Framework `
+        --tag scenario=$Scenario `
+        --tag endpoint=$Endpoint `
+        --tag iteration=$i `
         $ScriptName
 
-    # 3. CAPTURE EXACT END TIME (Add a 2-second pad to catch late-flushing metrics)
-    Start-Sleep -Seconds 2
+    # 3. CAPTURE EXACT END TIME (Add a 5-second pad to catch late-flushing metrics)
+    Start-Sleep -Seconds 5
     $EndTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
     # 4. EXPORT RAW DATABASE METRICS FOR THIS SPECIFIC TIMEFRAME
@@ -102,10 +107,9 @@ for ($i = 1; $i -le $Replays; $i++) {
 
     # We target metrics that carry our specific runtime label to keep the JSON clean
     $MatchFilters = @(
-        "{thesis_scenario=`"$Scenario`",run_id=`"$RunId`"}", # Catch all k6 metrics
-        "{namespace=`"$Namespace`"}",                       # Catch all pod CPU/RAM metrics
-        "{__name__=~`^kepler_.*`}",                         # Catch all Kepler energy metrics
-        "{__name__=~`^node_rapl_.*`}"                       # Catch raw node RAPL/DRAM metrics
+        "{scenario=`"$Scenario`",iteration=`"$i`"}", # Catch all k6 metrics
+        "{namespace=`"$Namespace`"}",                # Catch all pod CPU/RAM metrics
+        "{__name__=~`^kepler_.*`}"                   # Catch all Kepler energy metrics
     )
 
     $UrlParams = ""
@@ -115,7 +119,7 @@ for ($i = 1; $i -le $Replays; $i++) {
 
     $ExportUrl = "$VictoriaMetricsUrl/api/v1/export?start=$StartTime&end=$EndTime$UrlParams"
 
-    # Use PowerShell's native Invoke-WebRequest to save the JSON stream
+    # Save the JSON stream
     Invoke-WebRequest -Uri $ExportUrl -OutFile $VmJsonFilename
 
     Write-Host "[Exporting Data] Saved database snapshot to $VmJsonFilename" -ForegroundColor Green
