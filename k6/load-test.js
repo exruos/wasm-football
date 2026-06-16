@@ -1,6 +1,6 @@
 import http from 'k6/http';
-import { sleep } from 'k6';
-import { sharedArray } from 'k6/data';
+import { check } from 'k6';
+import { SharedArray } from 'k6/data';
 import { randomItem } from 'https://jslib.k6.io/k6-utils/1.6.0/index.js';
 
 const seasons = [
@@ -29,7 +29,7 @@ const leagues = [
 ];
 
 const teamIdPool = new SharedArray('team IDs', function () {
-  return JSON.parse(open('./team-ids.json'));
+    return JSON.parse(open('./team-ids.json'));
 });
 
 const currentScenario = __ENV.scenario;
@@ -80,8 +80,8 @@ if (currentScenario === 'coldstart') {
     // Default baseline: 100 VUs / 100k iterations
     options.scenarios.baseline_profile = {
         executor: 'shared-iterations',
-        vus: 100,
-        iterations: 1000000,
+        vus: 250,
+        iterations: 100000,
         maxDuration: '10m',
     };
 }

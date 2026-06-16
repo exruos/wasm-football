@@ -120,7 +120,7 @@ for ($i = 1; $i -le $Replays; $i++) {
     $ExportUrl = "$VictoriaMetricsUrl/api/v1/export?start=$StartTime&end=$EndTime$UrlParams"
 
     # Save the JSON stream
-    Invoke-WebRequest -Uri $ExportUrl -OutFile $VmJsonFilename
+    Invoke-WebRequest -Uri $ExportUrl -OutFile ".\.output\$VmJsonFilename"
 
     Write-Host "[Exporting Data] Saved database snapshot to $VmJsonFilename" -ForegroundColor Green
 
