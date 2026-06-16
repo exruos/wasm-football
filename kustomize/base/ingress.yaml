@@ -4,8 +4,7 @@ metadata:
   name: football-app
 spec:
   rules:
-    - host: localhost
-      http:
+    - http:
         paths:
           - path: /
             pathType: Prefix
@@ -13,4 +12,4 @@ spec:
               service:
                 name: football-app
                 port:
-                  number: 80
+                  number: 8080
