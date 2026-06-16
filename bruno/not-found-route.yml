@@ -1,7 +1,7 @@
 info:
   name: not-found-route
   type: http
-  seq: 9
+  seq: 10
 
 http:
   method: GET
