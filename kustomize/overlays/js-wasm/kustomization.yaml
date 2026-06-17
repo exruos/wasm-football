@@ -5,6 +5,7 @@ namespace: football
 
 resources:
   - ../../base
+  - https://github.com/spinframework/spin-operator/releases/download/v0.6.1/spin-operator.shim-executor.yaml
   - spinapp.yaml
 
 replacements:

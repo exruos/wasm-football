@@ -16,12 +16,12 @@ replacements:
     targets:
       - select:
           kind: SpinApp
-          name: football-rust-wasm
+          name: football-rust-wasm-mono
         fieldPaths:
           - spec.variables.0.value
   - source:
       kind: SpinApp
-      name: football-rust-wasm
+      name: football-rust-wasm-mono
       fieldPath: metadata.name
     targets:
       - select:
