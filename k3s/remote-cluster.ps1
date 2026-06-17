@@ -40,7 +40,13 @@ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/
 kubectl wait --for=condition=available --timeout=300s deployment/cert-manager-webhook -n cert-manager
 
 Write-Host 'Installing runtime-class-manager'
-kubectl apply -f https://github.com/spinframework/spin-operator/releases/download/v0.6.1/spin-operator.runtime-class.yaml
+helm upgrade --install runtime-class-manager --namespace runtime-class-manager --create-namespace --version 0.2.0 oci://ghcr.io/spinframework/charts/runtime-class-manager
+
+Write-Host 'Create Shim resource for installing the containerd-shim-spin binary'
+kubectl apply -f $scriptRoot\runtime-class-manager-shim.yaml
+
+Write-Host "Label all Nodes where the shim should be installed"
+kubectl label node --all spin=true
 
 Write-Host 'Installing Spin operator CRDs'
 kubectl apply -f https://github.com/spinframework/spin-operator/releases/download/v0.6.1/spin-operator.crds.yaml
@@ -65,3 +71,5 @@ Write-Host 'Installing Kepler'
 helm install kepler https://github.com/sustainable-computing-io/kepler/releases/download/v0.11.4/kepler-helm-0.11.4.tgz -n monitoring
 
 kubectl apply -f (Join-Path $repoRoot 'k3s\kepler-scrape.yaml')
+
+Write-Host 'Please restart k3s via "sudo systemctl restart k3s" to ensure containerd picks up the shim configuration.' -ForegroundColor Yellow

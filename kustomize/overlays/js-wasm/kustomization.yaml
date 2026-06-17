@@ -5,7 +5,6 @@ namespace: football
 
 resources:
   - ../../base
-  - https://github.com/spinframework/spin-operator/releases/download/v0.6.1/spin-operator.shim-executor.yaml
   - spinapp.yaml
 
 replacements:
@@ -29,3 +28,12 @@ replacements:
           name: football-app
         fieldPaths:
           - spec.rules.0.http.paths.0.backend.service.name
+
+patches:
+  - target:
+      kind: Ingress
+      name: football-app
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/http/paths/0/backend/service/port/number
+        value: 80
