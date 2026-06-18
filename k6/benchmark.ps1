@@ -72,7 +72,7 @@ for ($i = 1; $i -le $Replays; $i++) {
     $Timestamp = (Get-Date -UFormat %s) -replace '\..*'
     $RunId = "$Runtime-$Framework-$Scenario-$Endpoint-r$i-$Timestamp"
     $JsonFilename = "metrics-$RunId.json"
-    $VmJsonFilename = "vm-metrics-$RunId.json"
+    $VmJsonFilename = "vm-metrics-$RunId.jsonl"
 
     
     Write-Host "`n[$(Get-Date -Format 'HH:mm:ss')] Starting Replay $i of $Replays (ID: $RunId)..." -ForegroundColor Green
@@ -106,23 +106,30 @@ for ($i = 1; $i -le $Replays; $i++) {
     Write-Host "[Exporting Data] Fetching raw window from VictoriaMetrics..." -ForegroundColor Cyan
 
     # We target metrics that carry our specific runtime label to keep the JSON clean
-    $MatchFilters = @(
-        "{scenario=`"$Scenario`",iteration=`"$i`"}", # Catch all k6 metrics
-        "{namespace=`"$Namespace`"}",                # Catch all pod CPU/RAM metrics
-        "{__name__=~`^kepler_.*`}"                   # Catch all Kepler energy metrics
-    )
+    $MatchQuery = @"
+{__name__=~"kepler_pod_joules_total|
+container_cpu_.*|
+container_memory_working_set_bytes|
+kube_pod_status_ready|
+kube_pod_labels|
+k6_.*"}
+"@ -replace "`r`n|`n|\s", ""
 
-    $UrlParams = ""
-    foreach ($Filter in $MatchFilters) {
-        $UrlParams += "&match[]=" + [Uri]::EscapeDataString($Filter)
+    $Params = @{
+        "start"   = $StartTime
+        "end"     = $EndTime
+        "match[]" = $MatchQuery
     }
 
-    $ExportUrl = "$VictoriaMetricsUrl/api/v1/export?start=$StartTime&end=$EndTime$UrlParams"
-
     # Save the JSON stream
-    Invoke-WebRequest -Uri $ExportUrl -OutFile ".\.output\$VmJsonFilename"
+    $OutputDir = ".\.output"
+    if (-not (Test-Path $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir }
+    Invoke-RestMethod -Uri "$VictoriaMetricsUrl/api/v1/export" `
+        -Method Post `
+        -Body $Params `
+        -OutFile $OutputDir\$VmJsonFilename
 
-    Write-Host "[Exporting Data] Saved database snapshot to $VmJsonFilename" -ForegroundColor Green
+    Write-Host "[Exporting Data] Saved database snapshot to $OutputDir\$VmJsonFilename" -ForegroundColor Green
 
     # --- POST-RUN COOLDOWN ---
     if ($i -lt $Replays) {

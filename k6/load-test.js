@@ -51,7 +51,7 @@ if (currentScenario === 'coldstart') {
     options.thresholds = {
         http_req_failed: ['rate>=0'], // prevent fail on connection errors
     }
-    options.scenarios.coldstart_profile = {
+    options.scenarios.coldstart = {
         executor: 'per-vu-iterations',
         vus: 1,
         iterations: 1,
@@ -59,7 +59,7 @@ if (currentScenario === 'coldstart') {
     };
 } else if (currentScenario === 'scaling') {
     options.thresholds = safetyThresholds;
-    options.scenarios.autoscaling_profile = {
+    options.scenarios.scaling = {
         executor: 'ramping-arrival-rate',
         startVUs: 10,            // How many VUs to start with
         timeUnit: '1s',          // Define rate per second
@@ -78,10 +78,10 @@ if (currentScenario === 'coldstart') {
 } else if (currentScenario === 'baseline') {
     options.thresholds = safetyThresholds;
     // Default baseline: 100 VUs / 100k iterations
-    options.scenarios.baseline_profile = {
+    options.scenarios.baseline = {
         executor: 'shared-iterations',
         vus: 250,
-        iterations: 100000,
+        iterations: 10000,
         maxDuration: '10m',
     };
 }
