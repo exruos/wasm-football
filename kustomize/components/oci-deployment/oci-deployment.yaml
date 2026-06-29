@@ -1,24 +1,31 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: football-js-node
+  name: football-app
 spec:
-  replicas: 2
   selector:
     matchLabels:
-      app: football-js-node
+      app: football-app
   template:
     metadata:
       labels:
-        app: football-js-node
+        app: football-app
     spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: app
-          image: localhost:5000/football-js:node
-          imagePullPolicy: Always
+          image: football-image
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
+              name: http
+          resources:
+            limits:
+              cpu: 500m
+              memory: 500Mi
+            requests:
+              cpu: 100m
+              memory: 100Mi
           readinessProbe:
             httpGet:
               path: /ready

@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: football-db-pgbouncer
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: football-db-pgbouncer
@@ -37,11 +37,11 @@ spec:
             - name: POOL_MODE
               value: transaction
             - name: MAX_CLIENT_CONN
-              value: "1000"
+              value: "10000"
             - name: DEFAULT_POOL_SIZE
-              value: "60"
+              value: "100"
             - name: MIN_POOL_SIZE
-              value: "20"
+              value: "40"
             - name: RESERVE_POOL_SIZE
               value: "20"
             - name: RESERVE_POOL_TIMEOUT
@@ -51,7 +51,7 @@ spec:
             - name: SERVER_IDLE_TIMEOUT
               value: "300"
             - name: QUERY_WAIT_TIMEOUT
-              value: "120"
+              value: "30"
             - name: AUTH_TYPE
               value: scram-sha-256
             - name: AUTH_USER
@@ -62,11 +62,18 @@ spec:
             - containerPort: 5432
           resources:
             requests:
-              memory: "256Mi"
-              cpu: "250m"
-            limits:
               memory: "512Mi"
-              cpu: "1000m"
+              cpu: "500m"
+            limits:
+              memory: "10Gi"
+              cpu: "4000m"
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres", "-d", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            failureThreshold: 15
+            timeoutSeconds: 5
           livenessProbe:
             exec:
               command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres", "-d", "postgres"]
@@ -79,7 +86,7 @@ spec:
               command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres", "-d", "postgres"]
             initialDelaySeconds: 5
             periodSeconds: 5
-            timeoutSeconds: 3
+            timeoutSeconds: 5
             failureThreshold: 6
 ---
 apiVersion: v1

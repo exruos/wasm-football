@@ -1,0 +1,22 @@
+apiVersion: core.spinkube.dev/v1alpha1
+kind: SpinApp
+metadata:
+  name: football-app
+spec:
+  image: localhost:5000/football-rust:wasm
+  executor: containerd-shim-spin
+  resources:
+    limits:
+      cpu: 500m
+      memory: 500Mi
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  variables:
+    - name: db_url
+      value: ""
+  service:
+    ports:
+      - port: 8080
+        name: http
+        targetPort: 80
