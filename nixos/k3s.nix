@@ -6,6 +6,23 @@
     extraFlags = [
       "--tls-san=hetzner-metal"
     ];
+
+    manifests.traefik-gateway-config.content = {
+      apiVersion = "helm.cattle.io/v1";
+      kind = "HelmChartConfig";
+      metadata = {
+        name = "traefik";
+        namespace = "kube-system";
+      };
+      spec = {
+        valuesContent = ''
+          
+                  providers:
+                    kubernetesGateway:
+                      enabled: true
+        '';
+      };
+    };
   };
 
   environment.etc."rancher/k3s/registries.yaml".text = ''
