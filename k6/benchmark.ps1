@@ -13,8 +13,8 @@ param (
 
     [int]$Replays = 5,
 
-    # The name of your K8s deployment to scale down during cold starts
-    [string]$DeploymentName = "football-rust", # TODO look up
+    # The name of your K8s deployment to monitor during cold starts
+    [string]$DeploymentName = "football-rust",
     [string]$Namespace = "football",
 
     [string]$VictoriaMetricsUrl = "http://hetzner-vm:8428"
@@ -31,7 +31,7 @@ $env:K6_PROMETHEUS_RW_SERVER_URL = $PrometheusUrl
 $ScriptName = "load-test.js"
 
 Write-Host "=========================================================" -ForegroundColor Cyan
-Write-Host " THESIS BENCHMARK PROFILE ACTIVATED" -ForegroundColor Cyan
+Write-Host " BENCHMARK PROFILE" -ForegroundColor Cyan
 Write-Host " Target:   $Runtime ($Framework)"
 Write-Host " Scenario: $Scenario"
 Write-Host " Endpoint: $Endpoint"
@@ -43,26 +43,31 @@ for ($i = 1; $i -le $Replays; $i++) {
 
     # --- COLDSTART PREPARATION WORKFLOW ---
     if ($Scenario -eq "coldstart") {
-        Write-Host "`n[Coldstart Setup] Scaling deployment '$DeploymentName' down to 0..." -ForegroundColor Magenta
+        Write-Host "`n[Coldstart Setup] Waiting for KEDA to scale target down to 0..." -ForegroundColor Magenta
         
-        # 1. Force the scale down
-        kubectl scale deployment $DeploymentName --replicas=0 -n $Namespace | Out-Null
-        
-        # 2. Dynamically wait until all pods are completely terminated
-        Write-Host "[Coldstart Setup] Waiting for active pods to terminate..." -ForegroundColor Magenta
+        # 1. Dynamically wait until KEDA kills all active pods naturally
         while ($true) {
-            $ActivePods = kubectl get pods -n $Namespace --no-headers 2>$null | Where-Object { $_ -match "Running|Terminating|ContainerCreating" }
-            if ($null -eq $ActivePods) {
-                Write-Host "[Coldstart Setup] All pods terminated successfully." -ForegroundColor Green
+            if ($Runtime -eq "wasm") {
+                # For SpinKube, we check the ready replicas directly on the SpinApp resource
+                $ReadyReplicas = kubectl get spinapp $DeploymentName -n $Namespace -o jsonpath='{.status.readyReplicas}' 2>$null
+                # If the string is empty or '0', KEDA has completely scaled it down
+                $IsScaledDown = [string]::IsNullOrEmpty($ReadyReplicas) -or $ReadyReplicas -eq "0"
+            }
+            else {
+                # For OCI, we check the standard deployment's ready replicas
+                $ReadyReplicas = kubectl get deployment $DeploymentName -n $Namespace -o jsonpath='{.status.readyReplicas}' 2>$null
+                $IsScaledDown = [string]::IsNullOrEmpty($ReadyReplicas) -or $ReadyReplicas -eq "0"
+            }
+            
+            if ($IsScaledDown) {
+                Write-Host "`n[Coldstart Setup] Target '$DeploymentName' successfully scaled to 0 by KEDA." -ForegroundColor Green
                 break
             }
             Write-Host "." -NoNewline -ForegroundColor Gray
-            Start-Sleep -Seconds 3
+            Start-Sleep -Seconds 5
         }
         
-        # 3. Energy Cooldown Window
-        # This allows the physical node's CPU power and memory allocation metrics 
-        # to drop completely back down to an idle baseline after pod deletion noise.
+        # 2. Energy Cooldown Window
         Write-Host "[Coldstart Setup] Holding for a 45-second energy cooling window..." -ForegroundColor Yellow
         Start-Sleep -Seconds 45
     }
@@ -73,17 +78,11 @@ for ($i = 1; $i -le $Replays; $i++) {
     $RunId = "$Runtime-$Framework-$Scenario-$Endpoint-r$i-$Timestamp"
     $JsonFilename = "metrics-$RunId.json"
     $VmJsonFilename = "vm-metrics-$RunId.jsonl"
-
     
     Write-Host "`n[$(Get-Date -Format 'HH:mm:ss')] Starting Replay $i of $Replays (ID: $RunId)..." -ForegroundColor Green
 
     # 1. CAPTURE EXACT START TIME (RFC3339 format required by VictoriaMetrics)
     $StartTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-
-    # 1.1 scale the deployment back up immediately before the run to trigger the startup sequence
-    if ($Scenario -eq "coldstart") {
-        kubectl scale deployment $DeploymentName --replicas=1 -n $Namespace | Out-Null
-    }
 
     # 2. RUN BENCHMARK
     k6 run `
@@ -107,11 +106,10 @@ for ($i = 1; $i -le $Replays; $i++) {
 
     # We target metrics that carry our specific runtime label to keep the JSON clean
     $MatchQuery = @"
-{__name__=~"kepler_pod_joules_total|
-container_cpu_.*|
-container_memory_working_set_bytes|
-kube_pod_status_ready|
-kube_pod_labels|
+{__name__=~"kepler_*|
+pod_cpu_.*|
+pod_memory_working_set_bytes|
+kube_pod_info{namespace="football"}|
 k6_.*"}
 "@ -replace "`r`n|`n|\s", ""
 
@@ -134,7 +132,7 @@ k6_.*"}
     # --- POST-RUN COOLDOWN ---
     if ($i -lt $Replays) {
         if ($Scenario -eq "coldstart") {
-            Write-Host "Replay $i finished. Preparing for next cold-start cycle..." -ForegroundColor Yellow
+            Write-Host "Replay $i finished. Waiting for KEDA's cooldownPeriod for the next cycle..." -ForegroundColor Yellow
             Start-Sleep -Seconds 5
         }
         else {
