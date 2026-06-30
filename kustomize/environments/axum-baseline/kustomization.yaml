@@ -3,9 +3,7 @@ kind: Kustomization
 
 resources:
   - ../../base
-
-components:
-  - ../../components/oci-deployment
+  - ../../base-deployment
 
 images:
   - name: football-image

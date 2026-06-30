@@ -3,11 +3,15 @@ kind: Kustomization
 
 resources:
   - ../../base
-
-components:
-  - ../../components/oci-deployment
+  - ../../base-deployment
 
 images:
   - name: football-image
     newName: localhost:5000/football-rust
     newTag: axum
+
+patches:
+  - path: deployment-patch.yaml
+    target:
+      kind: Deployment
+      name: football-app
