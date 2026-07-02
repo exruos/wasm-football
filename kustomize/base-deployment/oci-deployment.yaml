@@ -21,11 +21,11 @@ spec:
               name: http
           resources:
             limits:
-              cpu: 500m
-              memory: 500Mi
+              cpu: 2
+              memory: 2Gi
             requests:
-              cpu: 100m
-              memory: 100Mi
+              cpu: 200m
+              memory: 1Gi
           readinessProbe:
             httpGet:
               path: /ready

@@ -33,5 +33,3 @@ spec:
               value: "http://football-app:8080"
             - name: SPRING_FLYWAY_ENABLED
               value: "false"
-            - name: JAVA_TOOL_OPTIONS
-              value: "-Djavax.net.ssl.sessionCacheSize=10000 -Djdk.tls.client.enableSessionTicketExtension=true -Djdk.tls.server.enableSessionTicketExtension=true"

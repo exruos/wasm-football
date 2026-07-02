@@ -9,8 +9,8 @@ resources:
 
 images:
   - name: football-image
-    newName: localhost:5000/football-rust
-    newTag: axum
+    newName: localhost:5000/football-kotlin
+    newTag: spring
 
 patches:
   - path: deployment-patch.yaml
