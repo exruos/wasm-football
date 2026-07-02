@@ -12,4 +12,4 @@ spec:
               service:
                 name: football-app
                 port:
-                  number: 8080
+                  number: 80

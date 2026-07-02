@@ -6,6 +6,7 @@ spec:
   scaleTargetRef:
     name: football-app
   minReplicaCount: 0
+  pollingInterval: 5
   triggers:
     - type: external-push
       metadata:

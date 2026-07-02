@@ -5,7 +5,7 @@ metadata:
 spec:
   target:
     service: football-app
-    port: 8080
+    port: 80
   scalingMetric:
     concurrency:
-      targetValue: 50
+      targetValue: 5

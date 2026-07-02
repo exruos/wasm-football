@@ -2,3 +2,14 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: football
+---
+apiVersion: core.spinkube.dev/v1alpha1
+kind: SpinAppExecutor
+metadata:
+  name: containerd-shim-spin
+  namespace: football
+spec:
+  createDeployment: true
+  deploymentConfig:
+    runtimeClassName: wasmtime-spin-v2
+    installDefaultCACerts: true

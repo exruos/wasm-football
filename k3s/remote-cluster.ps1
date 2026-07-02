@@ -72,4 +72,12 @@ helm install kepler https://github.com/sustainable-computing-io/kepler/releases/
 
 kubectl apply -f (Join-Path $repoRoot 'k3s\kepler-scrape.yaml')
 
+Write-Host 'Installing KEDA'
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo update
+helm install keda kedacore/keda --namespace keda --create-namespace
+
+Write-Host 'Installing KEDA HTTP Add-on'
+helm install http-add-on kedacore/keda-add-ons-http --namespace keda
+
 Write-Host 'Please restart k3s via "sudo systemctl restart k3s" to ensure containerd picks up the shim configuration.' -ForegroundColor Yellow

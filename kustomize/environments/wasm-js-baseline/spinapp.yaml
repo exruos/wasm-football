@@ -3,6 +3,7 @@ kind: SpinApp
 metadata:
   name: football-app
 spec:
+  replicas: 1
   image: localhost:5000/football-js:wasm
   executor: containerd-shim-spin
   resources:
@@ -15,8 +16,3 @@ spec:
   variables:
     - name: db_url
       value: ""
-  service:
-    ports:
-      - port: 8080
-        name: http
-        targetPort: 80
