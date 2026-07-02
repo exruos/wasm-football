@@ -39,26 +39,17 @@ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/
 
 kubectl wait --for=condition=available --timeout=300s deployment/cert-manager-webhook -n cert-manager
 
-Write-Host 'Installing runtime-class-manager'
-helm upgrade --install runtime-class-manager --namespace runtime-class-manager --create-namespace --version 0.2.0 oci://ghcr.io/spinframework/charts/runtime-class-manager
-
-Write-Host 'Create Shim resource for installing the containerd-shim-spin binary'
-kubectl apply -f $scriptRoot\runtime-class-manager-shim.yaml
-
-Write-Host "Label all Nodes where the shim should be installed"
-kubectl label node --all spin=true
-
 Write-Host 'Installing Spin operator CRDs'
 kubectl apply -f https://github.com/spinframework/spin-operator/releases/download/v0.6.1/spin-operator.crds.yaml
-
-Write-Host 'Installing Spin operator'
-helm upgrade --install spin-operator --namespace spin-operator --create-namespace --version 0.6.1 --wait oci://ghcr.io/spinframework/charts/spin-operator
 
 Write-Host 'Creating football namespace'
 kubectl apply -f $namespaceManifest
 
 Write-Host 'Installing shim executor'
 kubectl apply -n football -f https://github.com/spinframework/spin-operator/releases/download/v0.6.1/spin-operator.shim-executor.yaml
+
+Write-Host 'Installing Spin operator'
+helm upgrade --install spin-operator --namespace spin-operator --create-namespace --version 0.6.1 --wait oci://ghcr.io/spinframework/charts/spin-operator
 
 
 Write-Host 'Installing monitoring stack'
