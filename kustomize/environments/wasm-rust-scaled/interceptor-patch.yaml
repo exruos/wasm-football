@@ -4,4 +4,8 @@ metadata:
   name: football-app
 spec:
   target:
+    service: football-app
     port: 80
+  scalingMetric:
+    concurrency:
+      targetValue: 15

@@ -8,4 +8,4 @@ spec:
     port: 80
   scalingMetric:
     concurrency:
-      targetValue: 5
+      targetValue: 15

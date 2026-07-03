@@ -11,6 +11,7 @@ components:
 
 patches:
   - path: interceptor-patch.yaml
+  - path: httproute-patch.yaml
   - target:
       kind: SpinApp
       name: football-app

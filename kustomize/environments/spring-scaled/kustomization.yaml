@@ -8,3 +8,6 @@ resources:
 
 components:
   - ../../components/keda
+
+patches:
+  - path: httproute-patch.yaml
