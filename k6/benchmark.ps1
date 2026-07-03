@@ -14,7 +14,7 @@ param (
     [int]$Replays = 5,
 
     # The name of your K8s deployment to monitor during cold starts
-    [string]$DeploymentName = "football-rust",
+    [string]$DeploymentName = "football-app",
     [string]$Namespace = "football",
 
     [string]$VictoriaMetricsUrl = "http://hetzner-vm:8428"
@@ -104,27 +104,52 @@ for ($i = 1; $i -le $Replays; $i++) {
     # 4. EXPORT RAW DATABASE METRICS FOR THIS SPECIFIC TIMEFRAME
     Write-Host "[Exporting Data] Fetching raw window from VictoriaMetrics..." -ForegroundColor Cyan
 
-    # We target metrics that carry our specific runtime label to keep the JSON clean
-    $MatchQuery = @"
-{__name__=~"kepler_*|
-pod_cpu_.*|
-pod_memory_working_set_bytes|
-kube_pod_info{namespace="football"}|
-k6_.*"}
-"@ -replace "`r`n|`n|\s", ""
+    # 4.1 Define isolated PromQL selectors 
+    # Kepler 0.11 pod-level energy metrics in your namespace
+    $MatchKepler = [uri]::EscapeDataString('{__name__=~"kepler_container_.*", namespace="football", pod!=""}')
+    
+    # Standard cAdvisor CPU/RAM pod metrics in your namespace
+    $MatchPods = [uri]::EscapeDataString('{__name__=~"container_cpu_usage_seconds_total|container_memory_working_set_bytes", namespace="football", pod!=""}')
+    
+    # All k6 load testing metrics (no namespace filter since k6 runs externally)
+    $MatchK6 = [uri]::EscapeDataString('{__name__=~"k6_.*"}')
 
-    $Params = @{
-        "start"   = $StartTime
-        "end"     = $EndTime
-        "match[]" = $MatchQuery
-    }
+    # 4.2 Construct the URL-encoded payload safely
+    $Body = "start=$StartTime&end=$EndTime&match[]=$([uri]::EscapeDataString($MatchKepler))&match[]=$([uri]::EscapeDataString($MatchPods))&match[]=$([uri]::EscapeDataString($MatchK6))"
+
+    # 4.3 Print out the target URL, query parameters, and the literal request body for debugging
+    $ExportUrl = "$VictoriaMetricsUrl/api/v1/export"
+    Write-Host "`n--- VictoriaMetrics Export Request ---" -ForegroundColor DarkGray
+    Write-Host "Target URL: $ExportUrl" -ForegroundColor DarkGray
+    Write-Host "Time Range: $StartTime -> $EndTime" -ForegroundColor DarkGray
+    Write-Host "Match [1]:  $MatchKepler" -ForegroundColor DarkGray
+    Write-Host "Match [2]:  $MatchPods" -ForegroundColor DarkGray
+    Write-Host "Match [3]:  $MatchK6" -ForegroundColor DarkGray
+    Write-Host "HTTP Body:  $Body" -ForegroundColor Yellow
+    Write-Host "--------------------------------------`n" -ForegroundColor DarkGray
+
+    # We target metrics that carry our specific runtime label to keep the JSON clean
+#     $MatchQuery = @"
+# {__name__=~"kepler_*|
+# pod_cpu_.*|
+# pod_memory_working_set_bytes|
+# kube_pod_info{namespace="football"}|
+# k6_.*"}
+# "@ -replace "`r`n|`n|\s", ""
+
+#     $Params = @{
+#         "start"   = $StartTime
+#         "end"     = $EndTime
+#         "match[]" = $MatchQuery
+#     }
 
     # Save the JSON stream
     $OutputDir = ".\.output"
     if (-not (Test-Path $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir }
     Invoke-RestMethod -Uri "$VictoriaMetricsUrl/api/v1/export" `
         -Method Post `
-        -Body $Params `
+        -ContentType "application/x-www-form-urlencoded" `
+        -Body $Body `
         -OutFile $OutputDir\$VmJsonFilename
 
     Write-Host "[Exporting Data] Saved database snapshot to $OutputDir\$VmJsonFilename" -ForegroundColor Green

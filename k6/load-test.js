@@ -67,11 +67,11 @@ if (currentScenario === 'coldstart') {
         maxVUs: 1000,            // Upper limit of VUs allowed
 
         stages: [
-            { duration: '2m', target: 50 },   // Baseline: Ramp up to 50 RPS (System is stable, minimal pods)
+            { duration: '1m', target: 50 },   // Baseline: Ramp up to 50 RPS (System is stable, minimal pods)
             { duration: '5m', target: 50 },   // Stay at 50 RPS
-            { duration: '3m', target: 300 },  // Spike: Ramp up to 300 RPS (This should trigger HPA/KEDA scale-up)
+            { duration: '2m', target: 300 },  // Spike: Ramp up to 300 RPS (This should trigger HPA/KEDA scale-up)
             { duration: '5m', target: 300 },  // Sustained Load: Hold 300 RPS to see how scaled pods handle energy
-            { duration: '2m', target: 0 },    // Scale Down: Drop traffic to 0 to measure cooldown energy waste
+            { duration: '30s', target: 0 },   // Scale Down: Drop traffic to 0 to measure cooldown energy waste
             { duration: '5m', target: 0 },    // Cooldown observation window
         ],
     };
