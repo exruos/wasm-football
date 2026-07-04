@@ -5,10 +5,8 @@ namespace: football
 
 resources:
   - ../../base
-
-components:
-  - ../../components/oci-deployment
-
+  - ../../base-deployment
+  
 images:
   - name: football-image
     newName: localhost:5000/football-js
