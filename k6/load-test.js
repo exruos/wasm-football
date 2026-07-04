@@ -1,5 +1,5 @@
 import http from 'k6/http';
-import { check } from 'k6';
+import { check, randomSeed } from 'k6';
 import { SharedArray } from 'k6/data';
 import { randomItem } from 'https://jslib.k6.io/k6-utils/1.6.0/index.js';
 
@@ -28,13 +28,36 @@ const leagues = [
     "Switzerland Super league"
 ];
 
-const teamIdPool = new SharedArray('team IDs', function () {
-    return JSON.parse(open('./team-ids.json'));
+const matchIds = new SharedArray('match IDs', function () {
+    return JSON.parse(open('./pools/match-ids.json'));
+});
+const playerIds = new SharedArray('player IDs', function () {
+    return JSON.parse(open('./pools/player-ids.json'));
+});
+const teamIds = new SharedArray('team IDs', function () {
+    return JSON.parse(open('./pools/team-ids.json'));
 });
 
-const currentScenario = __ENV.scenario;
-const currentEndpoint = __ENV.endpoint;
+const scenario = __ENV.scenario;
 const baseUrl = 'http://hetzner-metal';
+
+const endpoints = [
+    { name: "simple", weight: 10 },
+    { name: "detailed", weight: 30 },
+    { name: "lookup", weight: 30 },
+    { name: "aggregate", weight: 30 },
+];
+
+function pickEndpoint(randomFloat) {
+    const r = randomFloat * 100;
+    let acc = 0;
+
+    for (const e of endpoints) {
+        acc += e.weight;
+        if (r <= acc) return e.name;
+    }
+    return endpoints[endpoints.length - 1].name;
+}
 
 export let options = {
     discardResponseBodies: true,
@@ -42,12 +65,12 @@ export let options = {
 };
 
 const safetyThresholds = {
-    http_req_failed: [{ threshold: 'rate<0.02', abortOnFail: true }],
-    http_req_duration: [{ threshold: 'p(95)<2000', abortOnFail: true }],
+    http_req_failed: [{ threshold: 'rate<0.02', abortOnFail: false }],
+    http_req_duration: [{ threshold: 'p(95)<10000', abortOnFail: true }],
 };
 
 
-if (currentScenario === 'coldstart') {
+if (scenario === 'coldstart') {
     options.thresholds = {
         http_req_failed: ['rate>=0'], // prevent fail on connection errors
     }
@@ -57,13 +80,13 @@ if (currentScenario === 'coldstart') {
         iterations: 1,
         maxDuration: '30s',
     };
-} else if (currentScenario === 'scaling') {
+} else if (scenario === 'scaling') {
     options.thresholds = safetyThresholds;
     options.scenarios.scaling = {
         executor: 'ramping-arrival-rate',
         startVUs: 10,            // How many VUs to start with
         timeUnit: '1s',          // Define rate per second
-        preAllocatedVUs: 200,    // Pre-allocate VUs so k6 doesn't bottleneck allocating memory
+        preAllocatedVUs: 100,    // Pre-allocate VUs so k6 doesn't bottleneck allocating memory
         maxVUs: 1000,            // Upper limit of VUs allowed
 
         stages: [
@@ -75,50 +98,65 @@ if (currentScenario === 'coldstart') {
             { duration: '5m', target: 0 },    // Cooldown observation window
         ],
     };
-} else if (currentScenario === 'baseline') {
+} else if (scenario === 'baseline') {
     options.thresholds = safetyThresholds;
-    // Default baseline: 100 VUs / 100k iterations
     options.scenarios.baseline = {
-        executor: 'shared-iterations',
-        vus: 250,
-        iterations: 10000,
+        executor: 'per-vu-iterations',
+        vus: 20,
+        iterations: 210,
         maxDuration: '10m',
+    };
+} else if (scenario === 'warmup') {
+    options.scenarios.warmup = {
+        executor: 'per-vu-iterations',
+        vus: 20,
+        iterations: 210,
+        maxDuration: '30s',
     };
 }
 
+
+
+let isSeeded = false;
+
 export default function () {
+    if (!isSeeded) {
+        randomSeed(__VU * 1000 + 42);
+        isSeeded = true;
+    }
+
     let response;
-    let targetId = randomItem(teamIdPool);
 
-    switch (currentEndpoint) {
+    if (scenario === 'scaling' || scenario === 'warmup') {
+        const endpoint = pickEndpoint(Math.random());
+        switch (endpoint) {
 
-        case 'simple':
-            // Workload Class: Simple read (Used for Coldstart / Minimal overhead)
-            response = http.get(`${baseUrl}/players/1`);
-            break;
+            case 'simple':
+                response = http.get(`${baseUrl}/players/${randomItem(playerIds)}`);
+                break;
 
-        case 'detailed':
-            // Workload Class: Detailed read (Used for Scaling / Heavy processing)
-            response = http.get(`${baseUrl}/teams/record/${targetId}`);
-            break;
+            case 'detailed':
+                response = http.get(`${baseUrl}/teams/record/${randomItem(teamIds)}`);
+                break;
 
-        case 'lookup':
-            // Workload Class: Lookup read (Used for Scaling / Nested DB queries)
-            response = http.get(`${baseUrl}/match/team/${targetId}`);
-            break;
+            case 'lookup':
+                response = http.get(`${baseUrl}/match/team/${randomItem(matchIds)}`);
+                break;
 
-        case 'aggregate':
-            // Workload Class: Aggregate read (Used for Steady-State Baseline)
-            // Picks randomized parameters on every single request to bypass database caches
-            let randomSeason = encodeURIComponent(randomItem(seasons));
-            let randomLeague = encodeURIComponent(randomItem(leagues));
+            case 'aggregate':
+                let randomSeason = encodeURIComponent(randomItem(seasons));
+                let randomLeague = encodeURIComponent(randomItem(leagues));
 
-            response = http.get(`${baseUrl}/match/result-table?season=${randomSeason}&leagueName=${randomLeague}`);
-            break;
+                response = http.get(`${baseUrl}/match/result-table?season=${randomSeason}&leagueName=${randomLeague}`);
+                break;
+        }
+    } else if (scenario === 'coldstart') {
+        response = http.get(`${baseUrl}/players/1`);
+    } else if (scenario === 'baseline') {
+        let randomSeason = encodeURIComponent(randomItem(seasons));
+        let randomLeague = encodeURIComponent(randomItem(leagues));
 
-        default:
-            console.error(`Unknown scenario/endpoint variable provided: "${currentEndpoint}"`);
-            break;
+        response = http.get(`${baseUrl}/match/result-table?season=${randomSeason}&leagueName=${randomLeague}`);
     }
 
     check(response, {

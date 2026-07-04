@@ -7,10 +7,6 @@ param (
     [ValidateSet("baseline", "coldstart", "scaling")]
     [string]$Scenario,
 
-    [Parameter(Mandatory = $true)]
-    [ValidateSet("simple", "detailed", "lookup", "aggregate")]
-    [string]$Endpoint,
-
     [int]$Replays = 5,
 
     # The name of your K8s deployment to monitor during cold starts
@@ -26,17 +22,21 @@ $Runtime = $Parts[0]   # "wasm" or "oci"
 $Framework = $Parts[1]   # "rust", "js", "axum", "node", or "spring"
 
 # --- Global Configurations ---
-$PrometheusUrl = "$VictoriaMetricsUrl/api/v1/write"
-$env:K6_PROMETHEUS_RW_SERVER_URL = $PrometheusUrl
+$PrometheusWriteUrl = "$VictoriaMetricsUrl/api/v1/write"
+$env:K6_PROMETHEUS_RW_SERVER_URL = $PrometheusWriteUrl
 $ScriptName = "load-test.js"
 
 Write-Host "=========================================================" -ForegroundColor Cyan
 Write-Host " BENCHMARK PROFILE" -ForegroundColor Cyan
 Write-Host " Target:   $Runtime ($Framework)"
 Write-Host " Scenario: $Scenario"
-Write-Host " Endpoint: $Endpoint"
 Write-Host " Replays:  $Replays loop(s)"
 Write-Host "=========================================================" -ForegroundColor Cyan
+
+if ($Scenario -ne "coldstart") {
+    Write-Host "`n[Warmup] Executing a warmup run to stabilize the target..." -ForegroundColor Yellow
+    k6 run --env scenario="warmup" $ScriptName
+}
 
 # --- Safe execution loop ---
 for ($i = 1; $i -le $Replays; $i++) {
@@ -73,13 +73,7 @@ for ($i = 1; $i -le $Replays; $i++) {
     }
 
     # --- BENCHMARK EXECUTION ---
-    # Append the endpoint type to the Run ID and JSON filename for perfect filtering later
-    $Timestamp = (Get-Date -UFormat %s) -replace '\..*'
-    $RunId = "$Runtime-$Framework-$Scenario-$Endpoint-r$i-$Timestamp"
-    $JsonFilename = "metrics-$RunId.json"
-    $VmJsonFilename = "vm-metrics-$RunId.jsonl"
-    
-    Write-Host "`n[$(Get-Date -Format 'HH:mm:ss')] Starting Replay $i of $Replays (ID: $RunId)..." -ForegroundColor Green
+    Write-Host "`n[$(Get-Date -Format 'HH:mm:ss')] Starting Replay $i of $Replays ..." -ForegroundColor Green
 
     # 1. CAPTURE EXACT START TIME (RFC3339 format required by VictoriaMetrics)
     $StartTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -87,72 +81,37 @@ for ($i = 1; $i -le $Replays; $i++) {
     # 2. RUN BENCHMARK
     k6 run `
         -o experimental-prometheus-rw `
-        -o json=$JsonFilename `
         --env scenario=$Scenario `
-        --env endpoint=$Endpoint `
-        --tag runtime=$Runtime `
-        --tag framework=$Framework `
-        --tag scenario=$Scenario `
-        --tag endpoint=$Endpoint `
-        --tag iteration=$i `
         $ScriptName
 
-    # 3. CAPTURE EXACT END TIME (Add a 5-second pad to catch late-flushing metrics)
-    Start-Sleep -Seconds 5
+    # 3. CAPTURE EXACT END TIME
     $EndTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-    # 4. EXPORT RAW DATABASE METRICS FOR THIS SPECIFIC TIMEFRAME
-    Write-Host "[Exporting Data] Fetching raw window from VictoriaMetrics..." -ForegroundColor Cyan
+    # 4. RECORD RUN METADATA TO JSONL
+    Write-Host "[Exporting Data] Appending run metadata to JSONL registry..." -ForegroundColor Cyan
 
-    # 4.1 Define isolated PromQL selectors 
-    # Kepler 0.11 pod-level energy metrics in your namespace
-    $MatchKepler = [uri]::EscapeDataString('{__name__=~"kepler_container_.*", namespace="football", pod!=""}')
-    
-    # Standard cAdvisor CPU/RAM pod metrics in your namespace
-    $MatchPods = [uri]::EscapeDataString('{__name__=~"container_cpu_usage_seconds_total|container_memory_working_set_bytes", namespace="football", pod!=""}')
-    
-    # All k6 load testing metrics (no namespace filter since k6 runs externally)
-    $MatchK6 = [uri]::EscapeDataString('{__name__=~"k6_.*"}')
+    $RunMetadata = [ordered]@{
+        StartTime = $StartTime
+        EndTime   = $EndTime
+        Runtime   = $Runtime
+        Framework = $Framework
+        Scenario  = $Scenario
+        Iteration = $i
+    }
 
-    # 4.2 Construct the URL-encoded payload safely
-    $Body = "start=$StartTime&end=$EndTime&match[]=$([uri]::EscapeDataString($MatchKepler))&match[]=$([uri]::EscapeDataString($MatchPods))&match[]=$([uri]::EscapeDataString($MatchK6))"
-
-    # 4.3 Print out the target URL, query parameters, and the literal request body for debugging
-    $ExportUrl = "$VictoriaMetricsUrl/api/v1/export"
-    Write-Host "`n--- VictoriaMetrics Export Request ---" -ForegroundColor DarkGray
-    Write-Host "Target URL: $ExportUrl" -ForegroundColor DarkGray
-    Write-Host "Time Range: $StartTime -> $EndTime" -ForegroundColor DarkGray
-    Write-Host "Match [1]:  $MatchKepler" -ForegroundColor DarkGray
-    Write-Host "Match [2]:  $MatchPods" -ForegroundColor DarkGray
-    Write-Host "Match [3]:  $MatchK6" -ForegroundColor DarkGray
-    Write-Host "HTTP Body:  $Body" -ForegroundColor Yellow
-    Write-Host "--------------------------------------`n" -ForegroundColor DarkGray
-
-    # We target metrics that carry our specific runtime label to keep the JSON clean
-#     $MatchQuery = @"
-# {__name__=~"kepler_*|
-# pod_cpu_.*|
-# pod_memory_working_set_bytes|
-# kube_pod_info{namespace="football"}|
-# k6_.*"}
-# "@ -replace "`r`n|`n|\s", ""
-
-#     $Params = @{
-#         "start"   = $StartTime
-#         "end"     = $EndTime
-#         "match[]" = $MatchQuery
-#     }
-
-    # Save the JSON stream
+    # Ensure output directory exists
     $OutputDir = ".\.output"
-    if (-not (Test-Path $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir }
-    Invoke-RestMethod -Uri "$VictoriaMetricsUrl/api/v1/export" `
-        -Method Post `
-        -ContentType "application/x-www-form-urlencoded" `
-        -Body $Body `
-        -OutFile $OutputDir\$VmJsonFilename
+    if (-not (Test-Path $OutputDir)) { 
+        New-Item -ItemType Directory -Path $OutputDir | Out-Null 
+    }
 
-    Write-Host "[Exporting Data] Saved database snapshot to $OutputDir\$VmJsonFilename" -ForegroundColor Green
+    $JsonlFilePath = "$OutputDir\benchmark_runs.jsonl"
+
+    # Convert to a single-line JSON string (-Compress) and append to the file
+    $JsonLine = $RunMetadata | ConvertTo-Json -Compress
+    Add-Content -Path $JsonlFilePath -Value $JsonLine -Encoding UTF8
+
+    Write-Host "[Exporting Data] Run metadata appended to $JsonlFilePath" -ForegroundColor Green
 
     # --- POST-RUN COOLDOWN ---
     if ($i -lt $Replays) {
@@ -169,4 +128,4 @@ for ($i = 1; $i -le $Replays; $i++) {
 
 # Clean up environment variable
 Remove-Item env:\K6_PROMETHEUS_RW_SERVER_URL
-Write-Host "`nBatch execution finished. Data safely pushed and archived." -ForegroundColor Cyan
+Write-Host "`nBatch execution finished." -ForegroundColor Cyan
