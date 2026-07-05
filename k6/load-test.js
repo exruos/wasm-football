@@ -86,14 +86,14 @@ if (scenario === 'coldstart') {
         executor: 'ramping-arrival-rate',
         startVUs: 10,            // How many VUs to start with
         timeUnit: '1s',          // Define rate per second
-        preAllocatedVUs: 100,    // Pre-allocate VUs so k6 doesn't bottleneck allocating memory
-        maxVUs: 1000,            // Upper limit of VUs allowed
+        preAllocatedVUs: 1000,    // Pre-allocate VUs so k6 doesn't bottleneck allocating memory
+        maxVUs: 3000,            // Upper limit of VUs allowed
 
         stages: [
-            { duration: '1m', target: 50 },   // Baseline: Ramp up to 50 RPS (System is stable, minimal pods)
-            { duration: '5m', target: 50 },   // Stay at 50 RPS
-            { duration: '2m', target: 300 },  // Spike: Ramp up to 300 RPS (This should trigger HPA/KEDA scale-up)
-            { duration: '5m', target: 300 },  // Sustained Load: Hold 300 RPS to see how scaled pods handle energy
+            { duration: '1m', target: 100 },   // Baseline: Ramp up to 100 RPS (System is stable, minimal pods)
+            { duration: '3m', target: 100 },   // Stay at 100 RPS
+            { duration: '2m', target: 1200 },  // Spike: Ramp up to 1200 RPS (This should trigger HPA/KEDA scale-up)
+            { duration: '5m', target: 1200 },  // Sustained Load: Hold 1200 RPS to see how scaled pods handle energy
             { duration: '30s', target: 0 },   // Scale Down: Drop traffic to 0 to measure cooldown energy waste
             { duration: '5m', target: 0 },    // Cooldown observation window
         ],
@@ -102,15 +102,15 @@ if (scenario === 'coldstart') {
     options.thresholds = safetyThresholds;
     options.scenarios.baseline = {
         executor: 'per-vu-iterations',
-        vus: 20,
-        iterations: 210,
+        vus: 32,
+        iterations: 2000,
         maxDuration: '10m',
     };
 } else if (scenario === 'warmup') {
     options.scenarios.warmup = {
         executor: 'per-vu-iterations',
-        vus: 20,
-        iterations: 210,
+        vus: 32,
+        iterations: 50,
         maxDuration: '30s',
     };
 }
