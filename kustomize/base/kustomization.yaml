@@ -9,4 +9,5 @@ resources:
   - db-service.yaml
   - db-pgbouncer.yaml
   - app-secret.yaml
-  - ingress.yaml
+  - gateway.yaml
+  - httproute.yaml

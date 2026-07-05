@@ -1,0 +1,14 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: football-app-scaler
+spec:
+  scaleTargetRef:
+    name: football-app
+  minReplicaCount: 0
+  pollingInterval: 5
+  triggers:
+    - type: external-push
+      metadata:
+        scalerAddress: keda-add-ons-http-external-scaler.keda:9090
+        interceptorRoute: football-app

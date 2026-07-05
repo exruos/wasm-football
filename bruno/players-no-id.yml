@@ -1,7 +1,7 @@
 info:
   name: players-no-id
   type: http
-  seq: 11
+  seq: 13
 
 http:
   method: GET

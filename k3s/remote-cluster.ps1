@@ -39,20 +39,17 @@ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/
 
 kubectl wait --for=condition=available --timeout=300s deployment/cert-manager-webhook -n cert-manager
 
-Write-Host 'Installing runtime-class-manager'
-kubectl apply -f https://github.com/spinframework/spin-operator/releases/download/v0.6.1/spin-operator.runtime-class.yaml
-
 Write-Host 'Installing Spin operator CRDs'
 kubectl apply -f https://github.com/spinframework/spin-operator/releases/download/v0.6.1/spin-operator.crds.yaml
-
-Write-Host 'Installing Spin operator'
-helm upgrade --install spin-operator --namespace spin-operator --create-namespace --version 0.6.1 --wait oci://ghcr.io/spinframework/charts/spin-operator
 
 Write-Host 'Creating football namespace'
 kubectl apply -f $namespaceManifest
 
 Write-Host 'Installing shim executor'
 kubectl apply -n football -f https://github.com/spinframework/spin-operator/releases/download/v0.6.1/spin-operator.shim-executor.yaml
+
+Write-Host 'Installing Spin operator'
+helm upgrade --install spin-operator --namespace spin-operator --create-namespace --version 0.6.1 --wait oci://ghcr.io/spinframework/charts/spin-operator
 
 
 Write-Host 'Installing monitoring stack'
@@ -65,3 +62,13 @@ Write-Host 'Installing Kepler'
 helm install kepler https://github.com/sustainable-computing-io/kepler/releases/download/v0.11.4/kepler-helm-0.11.4.tgz -n monitoring
 
 kubectl apply -f (Join-Path $repoRoot 'k3s\kepler-scrape.yaml')
+
+Write-Host 'Installing KEDA'
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo update
+helm install keda kedacore/keda --namespace keda --create-namespace
+
+Write-Host 'Installing KEDA HTTP Add-on'
+helm install http-add-on kedacore/keda-add-ons-http --namespace keda
+
+Write-Host 'Please restart k3s via "sudo systemctl restart k3s" to ensure containerd picks up the shim configuration.' -ForegroundColor Yellow

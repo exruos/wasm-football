@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: football-app
+spec:
+  selector:
+    matchLabels:
+      app: football-app
+  template:
+    spec:
+      containers:
+        - name: app
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://football-db:5438/postgres"
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "10"
+            - name: THC_PATH
+              value: "/actuator/health"
+            - name: THC_PORT
+              value: "8080"
+            - name: MATCH_REST_TEAM_NAME_STRATEGY
+              value: "POJO_WITHOUT_CACHE"
+            - name: MATCH_REST_TEAM_SERVICE_BASE_URL
+              value: "http://football-app:8080"
+            - name: SPRING_FLYWAY_ENABLED
+              value: "false"

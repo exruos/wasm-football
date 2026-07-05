@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: football-db
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: football-db
@@ -15,7 +15,7 @@ spec:
       containers:
         - name: football-db
           image: localhost:5000/football-db:postgres-18.4
-          args: ["-p", "5438"]
+          args: ["-p", "5438", "-c", "max_connections=300", "-c", "shared_buffers=2GB"]
           env:
             - name: POSTGRES_PASSWORD
               valueFrom:

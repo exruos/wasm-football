@@ -12,6 +12,6 @@ spec:
       app.kubernetes.io/name: kepler 
   endpoints:
   - port: http
-    interval: 15s
-    scrapeTimeout: 10s
+    interval: 5s
+    scrapeTimeout: 4s
     path: /metrics

@@ -1,7 +1,7 @@
 info:
   name: players-invalid-id
   type: http
-  seq: 11
+  seq: 12
 
 http:
   method: GET
