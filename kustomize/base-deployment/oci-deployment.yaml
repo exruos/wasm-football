@@ -20,12 +20,9 @@ spec:
             - containerPort: 8080
               name: http
           resources:
-            limits:
-              cpu: 2
-              memory: 2Gi
             requests:
-              cpu: 200m
-              memory: 1Gi
+              cpu: 500m
+              memory: 2Gi
           readinessProbe:
             httpGet:
               path: /ready
