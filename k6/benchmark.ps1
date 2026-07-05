@@ -9,7 +9,7 @@ param (
 
     [int]$Replays = 5,
 
-    # The name of your K8s deployment to monitor during cold starts
+    # The name of the K8s deployment to monitor during cold starts
     [string]$DeploymentName = "football-app",
     [string]$Namespace = "football",
 
