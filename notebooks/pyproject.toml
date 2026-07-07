@@ -1,0 +1,23 @@
+[project]
+name = "notebooks"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "altair>=6.2.2",
+    "httpx>=0.28.1",
+    "marimo[mcp]>=0.23.13",
+    "numpy>=2.5.1",
+    "polars>=1.42.1",
+    "pydantic-ai>=2.5.0",
+    "ruff>=0.15.20",
+]
+
+[dependency-groups]
+dev = [
+    "python-lsp-ruff>=2.3.1",
+    "python-lsp-server>=1.14.0",
+    "websockets>=16.0",
+    "ruff>=0.15.20",
+    "ty>=0.0.56",
+]
