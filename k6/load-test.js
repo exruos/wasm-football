@@ -103,7 +103,7 @@ if (scenario === 'coldstart') {
     options.scenarios.baseline = {
         executor: 'per-vu-iterations',
         vus: 32,
-        iterations: 2000,
+        iterations: 3125,
         maxDuration: '10m',
     };
 } else if (scenario === 'warmup') {

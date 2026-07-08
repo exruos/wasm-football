@@ -24,6 +24,7 @@ $Framework = $Parts[1]   # "rust", "js", "axum", "node", or "spring"
 # --- Global Configurations ---
 $PrometheusWriteUrl = "$VictoriaMetricsUrl/api/v1/write"
 $env:K6_PROMETHEUS_RW_SERVER_URL = $PrometheusWriteUrl
+$env:K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM="true"
 $ScriptName = "load-test.js"
 
 Write-Host "=========================================================" -ForegroundColor Cyan

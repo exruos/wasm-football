@@ -1,6 +1,6 @@
 ARG RUNTIME=node
 
-FROM node:25-slim AS deps-node
+FROM node:26.4-slim AS deps-node
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
@@ -16,7 +16,7 @@ COPY --from=deps-node /app/node_modules ./node_modules
 COPY package.json ./
 RUN deno cache --node-modules-dir=manual container/src/main.js || true
 
-FROM node:25-slim AS runtime-node
+FROM node:26.4-slim AS runtime-node
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0

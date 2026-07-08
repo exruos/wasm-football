@@ -59,9 +59,7 @@ helm repo update
 helm install vmks vm/victoria-metrics-k8s-stack -n monitoring --create-namespace  -f (Join-Path $repoRoot 'k3s\vm-values.yaml')
 
 Write-Host 'Installing Kepler'
-helm install kepler https://github.com/sustainable-computing-io/kepler/releases/download/v0.11.4/kepler-helm-0.11.4.tgz -n monitoring
-
-kubectl apply -f (Join-Path $repoRoot 'k3s\kepler-scrape.yaml')
+helm install kepler https://github.com/sustainable-computing-io/kepler/releases/download/v0.11.4/kepler-helm-0.11.4.tgz -n monitoring -f (Join-Path $repoRoot 'k3s\kepler-values.yaml')
 
 Write-Host 'Installing KEDA'
 helm repo add kedacore https://kedacore.github.io/charts
