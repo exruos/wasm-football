@@ -16,8 +16,8 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@types/node": "^25.9.1",
-    "esbuild": "^0.28.0",
+    "@types/node": "^26.1.0",
+    "esbuild": "^0.28.1",
     "mkdirp": "^3.0.1"
   },
   "dependencies": {
@@ -25,7 +25,7 @@
     "@spinframework/spin-postgres": "^2.0.0",
     "@spinframework/spin-variables": "^1.0.1",
     "@spinframework/wasi-http-proxy": "^2.0.0",
-    "itty-router": "^5.0.18",
+    "itty-router": "^5.0.24",
     "postgres": "^3.4.9"
   }
 }

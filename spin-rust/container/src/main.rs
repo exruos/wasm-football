@@ -2,6 +2,7 @@ mod routes;
 
 use routes::AppState;
 use sqlx::postgres::PgPoolOptions;
+use tracing::info;
 use std::net::SocketAddr;
 use tokio::signal;
 use tracing_subscriber::EnvFilter;
@@ -29,6 +30,8 @@ async fn main() -> anyhow::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    info!("Server running on http://0.0.0.0:8080");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;

@@ -1,0 +1,11 @@
+monitor:
+  interval: 1s
+  staleness: 500ms
+  maxTerminated: 100
+  minTerminatedEnergyThreshold: 10
+
+exporter:
+  prometheus:
+    metricsLevel:
+      - node
+      - pod
