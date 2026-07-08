@@ -24,7 +24,7 @@ $Framework = $Parts[1]   # "rust", "js", "axum", "node", or "spring"
 # --- Global Configurations ---
 $PrometheusWriteUrl = "$VictoriaMetricsUrl/api/v1/write"
 $env:K6_PROMETHEUS_RW_SERVER_URL = $PrometheusWriteUrl
-$env:K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM="true"
+$env:K6_FEATURES="native-histograms"
 $ScriptName = "load-test.js"
 
 Write-Host "=========================================================" -ForegroundColor Cyan
@@ -129,4 +129,5 @@ for ($i = 1; $i -le $Replays; $i++) {
 
 # Clean up environment variable
 Remove-Item env:\K6_PROMETHEUS_RW_SERVER_URL
+Remove-Item env:\K6_FEATURES
 Write-Host "`nBatch execution finished." -ForegroundColor Cyan
