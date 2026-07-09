@@ -40,7 +40,7 @@ pub(crate) async fn get_team_record_by_id(
     State(state): State<AppState>,
     Path(id): Path<i32>,
 ) -> Result<Response, ApiError> {
-    let row = sqlx::query("SELECT * FROM team WHERE team_api_id = $1")
+    let row = sqlx::query("SELECT * FROM team WHERE id = $1")
         .bind(id)
         .fetch_optional(&state.pool)
         .await?;
@@ -53,8 +53,8 @@ pub(crate) async fn get_team_record_by_id(
     let rows = sqlx::query(
         "SELECT * FROM team_attributes WHERE team_api_id = $1 AND team_fifa_api_id = $2",
     )
-    .bind(team.team_api_id)
-    .bind(team.team_fifa_api_id)
+    .bind(team.api_id)
+    .bind(team.fifa_api_id)
     .fetch_all(&state.pool)
     .await?;
 

@@ -10,18 +10,15 @@ pub struct TeamRecord {
 #[serde(rename_all = "camelCase")]
 pub struct Team {
     pub id: i32,
-    pub team_api_id: i32,
-    pub team_fifa_api_id: Option<i32>,
-    pub team_long_name: String,
-    pub team_short_name: String,
+    pub api_id: i32,
+    pub fifa_api_id: Option<i32>,
+    pub name: String,
+    pub short_name: String,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamAttributes {
-    pub id: i32,
-    pub team_fifa_api_id: Option<i32>,
-    pub team_api_id: i32,
     pub date: String,
     pub build_up_play_speed: Option<i32>,
     pub build_up_play_speed_class: Option<String>,

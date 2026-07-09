@@ -15,7 +15,7 @@ component = "monolith"
 
 [component.monolith]
 source = "target/wasm32-wasip2/release/monolith.wasm"
-allowed_outbound_hosts = ["postgres://*:5438", "http://self"]
+allowed_outbound_hosts = ["postgres://*:5438"]
 
 [component.monolith.variables]
 db_url = "{{ db_url }}"

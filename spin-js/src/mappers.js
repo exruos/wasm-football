@@ -69,18 +69,15 @@ export function playerAttributesFromRow(row) {
 export function teamFromRow(row) {
     return {
         id: row.id,
-        teamApiId: row.team_api_id,
-        teamFifaApiId: row.team_fifa_api_id,
-        teamLongName: row.team_long_name,
-        teamShortName: row.team_short_name,
+        apiId: row.team_api_id,
+        fifaApiId: row.team_fifa_api_id,
+        name: row.team_long_name,
+        shortName: row.team_short_name,
     };
 }
 
 export function teamAttributesFromRow(row) {
     return {
-        id: row.id,
-        teamFifaApiId: row.team_fifa_api_id,
-        teamApiId: row.team_api_id,
         date: formatDate(row.date),
         buildUpPlaySpeed: row.buildupplayspeed,
         buildUpPlaySpeedClass: row.buildupplayspeedclass,

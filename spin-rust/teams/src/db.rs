@@ -7,14 +7,14 @@ pub fn team_from_row(row: &Row) -> anyhow::Result<Team> {
         id: row
             .get::<i32>("id")
             .ok_or_else(|| anyhow::anyhow!("missing column: id"))?,
-        team_api_id: row
+        api_id: row
             .get::<i32>("team_api_id")
             .ok_or_else(|| anyhow::anyhow!("missing column: team_api_id"))?,
-        team_fifa_api_id: row.get::<i32>("team_fifa_api_id"),
-        team_long_name: row
+        fifa_api_id: row.get::<i32>("team_fifa_api_id"),
+        name: row
             .get::<String>("team_long_name")
             .ok_or_else(|| anyhow::anyhow!("missing column: team_long_name"))?,
-        team_short_name: row
+        short_name: row
             .get::<String>("team_short_name")
             .ok_or_else(|| anyhow::anyhow!("missing column: team_short_name"))?,
     })
@@ -22,13 +22,6 @@ pub fn team_from_row(row: &Row) -> anyhow::Result<Team> {
 
 pub fn team_attributes_from_row(row: &Row) -> anyhow::Result<TeamAttributes> {
     Ok(TeamAttributes {
-        id: row
-            .get::<i32>("id")
-            .ok_or_else(|| anyhow::anyhow!("missing column: id"))?,
-        team_fifa_api_id: row.get::<i32>("team_fifa_api_id"),
-        team_api_id: row
-            .get::<i32>("team_api_id")
-            .ok_or_else(|| anyhow::anyhow!("missing column: team_api_id"))?,
         date: row
             .get::<String>("date")
             .ok_or_else(|| anyhow::anyhow!("missing column: date"))

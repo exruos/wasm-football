@@ -11,12 +11,11 @@ use axum::{
 use football_shared::domain::matches::{MatchResource, ResultTableRowResource};
 use football_shared::services::result_table::{TableMatch, build_result_table};
 use serde::Deserialize;
-use serde_json::Value;
-use spin_sdk::http::{EmptyBody, Request, Response, body::IncomingBodyExt, send};
-#[cfg(feature = "spin-component")]
-use spin_sdk::{http::IntoResponse, http_service};
+use spin_sdk::http::Request ;
 use spin_sdk::pg::Connection;
 use spin_sdk::variables;
+#[cfg(feature = "spin-component")]
+use spin_sdk::{http::IntoResponse, http_service};
 use tower::util::ServiceExt;
 
 use crate::db::match_dto_from_row;
@@ -98,8 +97,8 @@ async fn try_get_match_by_id(id: i32) -> Result<Option<MatchResource>> {
         None => None,
         Some(row) => {
             let match_dto = match_dto_from_row(&row)?;
-            let home_team_name = resolve_team_name(match_dto.home_team_api_id.unwrap_or(0)).await?;
-            let away_team_name = resolve_team_name(match_dto.away_team_api_id.unwrap_or(0)).await?;
+            let home_team_name = get_team_name_by_id(match_dto.home_team_api_id.unwrap_or(0)).await?;
+            let away_team_name = get_team_name_by_id(match_dto.away_team_api_id.unwrap_or(0)).await?;
             Some(match_dto.to_match_resource(home_team_name, away_team_name))
         }
     };
@@ -119,8 +118,8 @@ async fn try_get_matches_by_team_id(id: i32) -> Result<Vec<MatchResource>> {
     let mut matches = Vec::new();
     while let Some(row) = query.next().await {
         let match_dto = match_dto_from_row(&row)?;
-        let home_team_name = resolve_team_name(match_dto.home_team_api_id.unwrap_or(0)).await?;
-        let away_team_name = resolve_team_name(match_dto.away_team_api_id.unwrap_or(0)).await?;
+        let home_team_name = get_team_name_by_id(match_dto.home_team_api_id.unwrap_or(0)).await?;
+        let away_team_name = get_team_name_by_id(match_dto.away_team_api_id.unwrap_or(0)).await?;
         matches.push(match_dto.to_match_resource(home_team_name, away_team_name));
     }
 
@@ -169,25 +168,31 @@ async fn try_get_result_table_by_season_and_league(
     let mut table_resources: Vec<ResultTableRowResource> = Vec::new();
 
     for row in table {
-        let team_name = resolve_team_name(row.team_id).await?;
+        let team_name = get_team_name_by_id(row.team_id).await?;
         table_resources.push(row.to_resource(team_name));
     }
 
     Ok(table_resources)
 }
 
-async fn resolve_team_name(team_id: i32) -> Result<String> {
-    let request = Request::get(format!("http://self/teams/api-id/{}", team_id)).body(EmptyBody::new())?;
-    let response: Response = send(request).await?;
+async fn get_team_name_by_id(team_id: i32) -> Result<String> {
+    let address = variables::get("db_url").await?;
+    let conn = Connection::open(&address).await?;
 
-    if response.status() == StatusCode::OK {
-        let body = response.into_body().bytes().await?;
-        let json: Value = serde_json::from_slice(&body)?;
-        let name = json["teamLongName"].as_str().unwrap_or("Unknown");
-        Ok(name.to_string())
-    } else {
-        Ok("Unknown".to_string())
-    }
+    let mut team_query = conn
+        .query("SELECT team_long_name FROM team WHERE team_api_id = $1", &[team_id.into()])
+        .await?;
+
+    let team_name = match team_query.next().await {
+        Some(row) => {
+            row.get::<String>("team_long_name").unwrap_or_else(|| "Unknown".to_string())
+        }
+        None => "Unknown".to_string(),
+    };
+
+    team_query.result().await?;
+
+    Ok(team_name)
 }
 
 fn internal_error_response(error: anyhow::Error) -> AxumResponse {

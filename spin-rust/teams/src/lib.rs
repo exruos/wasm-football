@@ -99,7 +99,7 @@ async fn try_get_team_record_by_id(id: i32) -> Result<Option<TeamRecord>> {
     let conn = Connection::open(&address).await?;
 
     let mut team_query = conn
-        .query("SELECT * FROM team WHERE team_api_id = $1", &[id.into()])
+        .query("SELECT * FROM team WHERE id = $1", &[id.into()])
         .await?;
 
     let team = match team_query.next().await {
@@ -115,7 +115,7 @@ async fn try_get_team_record_by_id(id: i32) -> Result<Option<TeamRecord>> {
     let mut attributes_query = conn
         .query(
             "SELECT * FROM team_attributes WHERE team_api_id = $1 AND team_fifa_api_id = $2",
-            &[team.team_api_id.into(), team.team_fifa_api_id.into()],
+            &[team.api_id.into(), team.fifa_api_id.into()],
         )
         .await?;
 
