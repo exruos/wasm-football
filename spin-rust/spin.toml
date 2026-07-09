@@ -49,7 +49,7 @@ component = "match"
 
 [component.match]
 source = "target/wasm32-wasip2/release/match.wasm"
-allowed_outbound_hosts = ["postgres://*:5438", "http://self/", "http://teams.spin.internal/"]
+allowed_outbound_hosts = ["postgres://*:5438", "http://self",]
 
 [component.match.variables]
 db_url = "{{ db_url }}"

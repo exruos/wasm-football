@@ -12,12 +12,9 @@ use football_shared::domain::matches::{MatchResource, ResultTableRowResource};
 use football_shared::services::result_table::{TableMatch, build_result_table};
 use serde::Deserialize;
 use serde_json::Value;
-use spin_sdk::http::{
-    EmptyBody, Method, Request, Response,
-    body::IncomingBodyExt,
-};
+use spin_sdk::http::{EmptyBody, Request, Response, body::IncomingBodyExt, send};
 #[cfg(feature = "spin-component")]
-use spin_sdk::http_service;
+use spin_sdk::{http::IntoResponse, http_service};
 use spin_sdk::pg::Connection;
 use spin_sdk::variables;
 use tower::util::ServiceExt;
@@ -36,7 +33,7 @@ pub fn register_routes(router: Router) -> Router {
 
 #[cfg(feature = "spin-component")]
 #[http_service]
-async fn handle_request(req: Request) -> Result<impl spin_sdk::http::IntoResponse> {
+async fn handle_request(req: Request) -> Result<impl IntoResponse> {
     let response = register_routes(Router::new())
         .oneshot(req)
         .await
@@ -65,7 +62,9 @@ async fn get_match_by_id(Path(id): Path<i32>) -> AxumResponse {
 
 async fn get_matches_by_team_id(Path(id): Path<i32>) -> AxumResponse {
     match try_get_matches_by_team_id(id).await {
-        Ok(resources) if resources.is_empty() => AxumIntoResponse::into_response(StatusCode::NOT_FOUND),
+        Ok(resources) if resources.is_empty() => {
+            AxumIntoResponse::into_response(StatusCode::NOT_FOUND)
+        }
         Ok(resources) => AxumIntoResponse::into_response((StatusCode::OK, Json(resources))),
         Err(error) => internal_error_response(error),
     }
@@ -81,7 +80,6 @@ struct ResultTableQuery {
 async fn get_result_table_by_season_and_league(
     Query(query): Query<ResultTableQuery>,
 ) -> AxumResponse {
-
     match try_get_result_table_by_season_and_league(&query.season, &query.league_name).await {
         Ok(rows) => (StatusCode::OK, Json(rows)).into_response(),
         Err(error) => internal_error_response(error),
@@ -179,14 +177,8 @@ async fn try_get_result_table_by_season_and_league(
 }
 
 async fn resolve_team_name(team_id: i32) -> Result<String> {
-    let request = Request::builder()
-        .method(Method::GET)
-        .uri(format!("http://self/teams/api-id/{}", team_id))
-        .body(EmptyBody::new())?;
-
-    print!("Request URI: {}", request.uri());
-
-    let response: Response = spin_sdk::http::send(request).await?;
+    let request = Request::get(format!("http://self/teams/api-id/{}", team_id)).body(EmptyBody::new())?;
+    let response: Response = send(request).await?;
 
     if response.status() == StatusCode::OK {
         let body = response.into_body().bytes().await?;

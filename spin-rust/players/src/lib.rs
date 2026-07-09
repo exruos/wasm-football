@@ -11,7 +11,7 @@ use axum::{
 use football_shared::domain::players::PlayerRecord;
 use spin_sdk::http::Request;
 #[cfg(feature = "spin-component")]
-use spin_sdk::http_service;
+use spin_sdk::{http::IntoResponse, http_service};
 use spin_sdk::pg::Connection;
 use spin_sdk::variables;
 use tower::util::ServiceExt;
@@ -26,7 +26,7 @@ pub fn register_routes(router: Router) -> Router {
 
 #[cfg(feature = "spin-component")]
 #[http_service]
-async fn handle_request(req: Request) -> Result<impl spin_sdk::http::IntoResponse> {
+async fn handle_request(req: Request) -> Result<impl IntoResponse> {
     let response = register_routes(Router::new())
         .oneshot(req)
         .await
