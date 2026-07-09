@@ -45,15 +45,15 @@ async fn handle_request(req: Request) -> Result<impl spin_sdk::http::IntoRespons
     Ok(response)
 }
 
-#[cfg(not(feature = "spin-component"))]
-pub async fn handle_request(req: Request) -> Result<AxumResponse> {
-    let response = register_routes(Router::new())
-        .oneshot(req)
-        .await
-        .unwrap_or_else(|err| match err {});
+// #[cfg(not(feature = "spin-component"))]
+// pub async fn handle_request(req: Request) -> Result<AxumResponse> {
+//     let response = register_routes(Router::new())
+//         .oneshot(req)
+//         .await
+//         .unwrap_or_else(|err| match err {});
 
-    Ok(response)
-}
+//     Ok(response)
+// }
 
 async fn get_match_by_id(Path(id): Path<i32>) -> AxumResponse {
     match try_get_match_by_id(id).await {
