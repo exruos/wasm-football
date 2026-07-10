@@ -9,8 +9,8 @@ await build({
     bundle: true,
     format: 'esm',
     platform: 'browser',
-    sourcemap: true,
-    minify: false,
+    sourcemap: debug,
+    minify: !debug,
     resolveExtensions: ['.js'],
     plugins: [await SpinEsbuildPlugin({
         componentize: {
