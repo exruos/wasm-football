@@ -466,6 +466,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
+name = "football-rust"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "match",
+ "players",
+ "spin-sdk",
+ "teams",
+ "tower",
+]
+
+[[package]]
 name = "football-shared"
 version = "0.1.0"
 dependencies = [
@@ -1074,19 +1087,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "monolith"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "match",
- "players",
- "spin-sdk",
- "teams",
- "tower",
 ]
 
 [[package]]
