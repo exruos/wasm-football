@@ -5,7 +5,7 @@
             "type": "starlingmonkey",
             "request": "launch",
             "name": "Debug StarlingMonkey component",
-            "component": "${workspaceFolder}/dist/football-js.wasm",
+            "component": "${workspaceFolder}/target/football-js.wasm",
             "program": "${workspaceFolder}/src/index.js",
             "stopOnEntry": false,
             "trace": true

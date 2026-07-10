@@ -1,17 +1,14 @@
 import { jsonResponse } from '../http.js';
 
-export function registerHealthRoutes(router, dependencies) {
-    router.get('/health', () => jsonResponse({ status: 'ok' }));
+export function registerHealthRoutes(router, { getConnection }) {
+    router.get('/health', async () => jsonResponse({ status: 'ok' }));
 
-    if (dependencies && typeof dependencies.getConnection === 'function') {
-        router.get('/ready', async () => {
-            try {
-                const conn = dependencies.getConnection();
-                await conn.query('SELECT 1');
-                return jsonResponse({ status: 'ok' });
-            } catch (err) {
-                return jsonResponse({ status: 'db-error', error: String(err) }, 500);
-            }
-        });
-    }
+    router.get('/ready', async () => {
+        try {
+            await getConnection().query('SELECT 1', []);
+            return jsonResponse({ status: 'ok' });
+        } catch (err) {
+            return jsonResponse({ status: 'db-error', error: String(err) }, 500);
+        }
+    });
 }
