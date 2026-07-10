@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 use football_shared::domain::players::{Player, PlayerAttributes};
-use spin_sdk::pg4::Row;
+use spin_sdk::pg::Row;
 
 pub fn player_from_row(row: &Row) -> anyhow::Result<Player> {
     Ok(Player {

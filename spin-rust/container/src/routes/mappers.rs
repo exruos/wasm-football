@@ -81,10 +81,10 @@ pub(crate) fn player_attributes_from_row(row: &PgRow) -> anyhow::Result<PlayerAt
 pub(crate) fn team_from_row(row: &PgRow) -> anyhow::Result<Team> {
     Ok(Team {
         id: row.try_get("id")?,
-        team_api_id: row.try_get("team_api_id")?,
-        team_fifa_api_id: row.try_get("team_fifa_api_id")?,
-        team_long_name: row.try_get("team_long_name")?,
-        team_short_name: row.try_get("team_short_name")?,
+        api_id: row.try_get("team_api_id")?,
+        fifa_api_id: row.try_get("team_fifa_api_id")?,
+        name: row.try_get("team_long_name")?,
+        short_name: row.try_get("team_short_name")?,
     })
 }
 
@@ -95,9 +95,6 @@ pub(crate) fn team_attributes_from_row(row: &PgRow) -> anyhow::Result<TeamAttrib
         .unwrap_or_default();
 
     Ok(TeamAttributes {
-        id: row.try_get("id")?,
-        team_fifa_api_id: row.try_get("team_fifa_api_id")?,
-        team_api_id: row.try_get("team_api_id")?,
         date,
         build_up_play_speed: row.try_get("buildupplayspeed")?,
         build_up_play_speed_class: row.try_get("buildupplayspeedclass")?,

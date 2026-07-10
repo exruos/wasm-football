@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('All', 'JsNode', 'RustAxum', 'JsWasm', 'RustWasm', 'RustWasmMonolith', 'KotlinSpring')]
+    [ValidateSet('All', 'JsNode', 'RustAxum', 'JsWasm', 'RustWasm', 'RustWasmComponents', 'KotlinSpring')]
     [Parameter(Mandatory = $true)]
     [string]$Target
     ,
@@ -110,8 +110,8 @@ switch ($Target) {
 
         Invoke-SpinPublish `
             -WorkingDirectory (Join-Path $repoRoot 'spin-rust') `
-            -RegistryImage "$RegistryHost/football-rust:wasm-mono" `
-            -Toml 'spin.monolith.toml'
+            -RegistryImage "$RegistryHost/football-rust:wasm-components" `
+            -Toml 'spin.components.toml'
     }
 
     'JsNode' {
@@ -142,11 +142,11 @@ switch ($Target) {
             -RegistryImage "$RegistryHost/football-rust:wasm"
     }
 
-    'RustWasmMonolith' {
+    'RustWasmComponents' {
         Invoke-SpinPublish `
             -WorkingDirectory (Join-Path $repoRoot 'spin-rust') `
-            -RegistryImage "$RegistryHost/football-rust:wasm-mono" `
-            -Toml 'spin.monolith.toml'
+            -RegistryImage "$RegistryHost/football-rust:wasm-components" `
+            -Toml 'spin.components.toml'
     }
 
     'KotlinSpring' {

@@ -1,0 +1,65 @@
+spin_manifest_version = 2
+
+[application]
+name = "football-rust-components"
+version = "0.1.0"
+authors = ["exruos <115374714+exruos@users.noreply.github.com>"]
+description = "Get football player, team, and match information"
+
+[variables]
+db_url = { default = "postgres://postgres:postgres@localhost:5438/postgres" }
+
+[[trigger.http]]
+route = "/players/..."
+component = "players"
+
+[component.players]
+source = "target/wasm32-wasip2/release/players.wasm"
+allowed_outbound_hosts = ["postgres://*:5438"]
+
+[component.players.variables]
+db_url = "{{ db_url }}"
+
+[component.players.build]
+command = "cargo build --target wasm32-wasip2 --release"
+workdir = "players"
+watch = ["src/**/*.rs", "Cargo.toml"]
+
+
+[[trigger.http]]
+route = "/teams/..."
+component = "teams"
+
+[component.teams]
+source = "target/wasm32-wasip2/release/teams.wasm"
+allowed_outbound_hosts = ["postgres://*:5438"]
+
+[component.teams.variables]
+db_url = "{{ db_url }}"
+
+[component.teams.build]
+command = "cargo build --target wasm32-wasip2 --release"
+workdir = "teams"
+watch = ["src/**/*.rs", "Cargo.toml"]
+
+
+[[trigger.http]]
+route = "/match/..."
+component = "match"
+
+[component.match]
+source = "target/wasm32-wasip2/release/match.wasm"
+allowed_outbound_hosts = ["postgres://*:5438"]
+
+[component.match.variables]
+db_url = "{{ db_url }}"
+
+[component.match.build]
+command = "cargo build --target wasm32-wasip2 --release"
+workdir = "match"
+watch = ["src/**/*.rs", "Cargo.toml"]
+
+
+[[trigger.http]]
+route = "/..."
+static_response = { status_code = 404, body = "{\"status\":404,\"error\":\"Not Found\"}", headers = { "content-type" = "application/json" } }

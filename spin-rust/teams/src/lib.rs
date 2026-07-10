@@ -1,111 +1,134 @@
 mod db;
 
-use anyhow::{Ok, Result};
+use anyhow::Result;
+use axum::{
+    Json, Router,
+    extract::Path,
+    http::StatusCode,
+    response::{IntoResponse as AxumIntoResponse, Response as AxumResponse},
+    routing::get,
+};
 use football_shared::domain::teams::TeamRecord;
-use spin_sdk::http::{Params, Request, Response, Router};
+use spin_sdk::http::Request;
 #[cfg(feature = "spin-component")]
-use spin_sdk::http_component;
-use spin_sdk::pg4::Connection;
+use spin_sdk::{http::IntoResponse, http_service};
+use spin_sdk::pg::Connection;
 use spin_sdk::variables;
+use tower::util::ServiceExt;
 
 use crate::db::{team_attributes_from_row, team_from_row};
 
-pub fn register_routes(router: &mut Router) {
-    router.get("/teams/:id", get_team_by_id);
-    router.get("/teams/api-id/:id", get_team_by_api_id);
-    router.get("/teams/record/:id", get_team_record_by_id);
+pub fn register_routes(router: Router) -> Router {
+    router
+        .route("/teams/{id}", get(get_team_by_id))
+        .route("/teams/api-id/{id}", get(get_team_by_api_id))
+        .route("/teams/record/{id}", get(get_team_record_by_id))
 }
 
 #[cfg(feature = "spin-component")]
-#[http_component]
-fn handle_request(req: Request) -> Response {
-    let mut router = Router::new();
+#[http_service]
+async fn handle_request(req: Request) -> Result<impl IntoResponse> {
+    let response = register_routes(Router::new())
+        .oneshot(req)
+        .await
+        .unwrap_or_else(|err| match err {});
 
-    register_routes(&mut router);
-    router.any("/*", |_: Request, _| {
-        Ok(Response::builder()
-            .status(404)
-            .header("Content-Type", "application/json")
-            .body("{\"status\":404,\"error\":\"Not Found\"}".to_string())
-            .build())
-    });
-
-    router.handle(req)
+    Ok(response)
 }
 
-fn get_team_by_id(_req: Request, params: Params) -> Result<Response> {
-    let address = variables::get("db_url")?;
-    let conn = Connection::open(&address)?;
+#[cfg(not(feature = "spin-component"))]
+pub async fn handle_request(req: Request) -> Result<AxumResponse> {
+    let response = register_routes(Router::new())
+        .oneshot(req)
+        .await
+        .unwrap_or_else(|err| match err {});
 
-    let id = params.get("id").unwrap_or("0").parse::<i32>()?;
+    Ok(response)
+}
 
-    let rowset = conn.query("SELECT * FROM team WHERE id = $1", &[id.into()])?;
-
-    match rowset.rows().next() {
-        None => Ok(Response::builder().status(404).build()),
-        Some(row) => {
-            let team = team_from_row(&row)?;
-            let json = serde_json::to_string(&team).unwrap();
-            Ok(Response::builder()
-                .status(200)
-                .header("Content-Type", "application/json")
-                .body(json)
-                .build())
-        }
+async fn get_team_by_id(Path(id): Path<i32>) -> AxumResponse {
+    match try_get_team_by_id(id).await {
+        Ok(Some(team)) => AxumIntoResponse::into_response((StatusCode::OK, Json(team))),
+        Ok(None) => AxumIntoResponse::into_response(StatusCode::NOT_FOUND),
+        Err(error) => internal_error_response(error),
     }
 }
 
-fn get_team_by_api_id(_req: Request, params: Params) -> Result<Response> {
-    let address = variables::get("db_url")?;
-    let conn = Connection::open(&address)?;
-
-    let id = params.get("id").unwrap_or("0").parse::<i32>()?;
-
-    let rowset = conn.query("SELECT * FROM team WHERE team_api_id = $1", &[id.into()])?;
-
-    match rowset.rows().next() {
-        None => Ok(Response::builder().status(404).build()),
-        Some(row) => {
-            let team = team_from_row(&row)?;
-            let json = serde_json::to_string(&team).unwrap();
-            Ok(Response::builder()
-                .status(200)
-                .header("Content-Type", "application/json")
-                .body(json)
-                .build())
-        }
+async fn get_team_by_api_id(Path(id): Path<i32>) -> AxumResponse {
+    match try_get_team_by_api_id(id).await {
+        Ok(Some(team)) => AxumIntoResponse::into_response((StatusCode::OK, Json(team))),
+        Ok(None) => AxumIntoResponse::into_response(StatusCode::NOT_FOUND),
+        Err(error) => internal_error_response(error),
     }
 }
 
-fn get_team_record_by_id(_req: Request, params: Params) -> Result<Response> {
-    let address = variables::get("db_url")?;
-    let conn = Connection::open(&address)?;
+async fn get_team_record_by_id(Path(id): Path<i32>) -> AxumResponse {
+    match try_get_team_record_by_id(id).await {
+        Ok(Some(team_record)) => AxumIntoResponse::into_response((StatusCode::OK, Json(team_record))),
+        Ok(None) => AxumIntoResponse::into_response(StatusCode::NOT_FOUND),
+        Err(error) => internal_error_response(error),
+    }
+}
 
-    let id = params.get("id").unwrap_or("0").parse::<i32>()?;
+async fn try_get_team_by_id(id: i32) -> Result<Option<football_shared::domain::teams::Team>> {
+    let address = variables::get("db_url").await?;
+    let conn = Connection::open(&address).await?;
 
-    let team_rowset = conn.query("SELECT * FROM team WHERE team_api_id = $1", &[id.into()])?;
+    let mut query = conn.query("SELECT * FROM team WHERE id = $1", &[id.into()]).await?;
+    let team = query.next().await.map(|row| team_from_row(&row)).transpose()?;
+    query.result().await?;
 
-    let team = match team_rowset.rows().next() {
-        None => return Ok(Response::builder().status(404).build()),
+    Ok(team)
+}
+
+async fn try_get_team_by_api_id(id: i32) -> Result<Option<football_shared::domain::teams::Team>> {
+    let address = variables::get("db_url").await?;
+    let conn = Connection::open(&address).await?;
+
+    let mut query = conn
+        .query("SELECT * FROM team WHERE team_api_id = $1", &[id.into()])
+        .await?;
+    let team = query.next().await.map(|row| team_from_row(&row)).transpose()?;
+    query.result().await?;
+
+    Ok(team)
+}
+
+async fn try_get_team_record_by_id(id: i32) -> Result<Option<TeamRecord>> {
+    let address = variables::get("db_url").await?;
+    let conn = Connection::open(&address).await?;
+
+    let mut team_query = conn
+        .query("SELECT * FROM team WHERE id = $1", &[id.into()])
+        .await?;
+
+    let team = match team_query.next().await {
+        None => {
+            team_query.result().await?;
+            return Ok(None);
+        }
         Some(row) => team_from_row(&row)?,
     };
 
-    let attributes_rowset = conn.query(
-        "SELECT * FROM team_attributes WHERE team_api_id = $1 AND team_fifa_api_id = $2",
-        &[team.team_api_id.into(), team.team_fifa_api_id.into()],
-    )?;
+    team_query.result().await?;
+
+    let mut attributes_query = conn
+        .query(
+            "SELECT * FROM team_attributes WHERE team_api_id = $1 AND team_fifa_api_id = $2",
+            &[team.api_id.into(), team.fifa_api_id.into()],
+        )
+        .await?;
 
     let mut attributes = Vec::new();
-    for row in attributes_rowset.rows() {
+    while let Some(row) = attributes_query.next().await {
         attributes.push(team_attributes_from_row(&row)?);
     }
 
-    let team_record = TeamRecord { team, attributes };
+    attributes_query.result().await?;
 
-    let json = serde_json::to_string(&team_record)?;
-    Ok(Response::builder()
-        .status(200)
-        .header("Content-Type", "application/json")
-        .body(json)
-        .build())
+    Ok(Some(TeamRecord { team, attributes }))
+}
+
+fn internal_error_response(error: anyhow::Error) -> AxumResponse {
+    AxumIntoResponse::into_response((StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
