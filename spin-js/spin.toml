@@ -14,11 +14,11 @@ route = "/..."
 component = "football-js"
 
 [component.football-js]
-source = "dist/football-js.wasm"
+source = "target/football-js.wasm"
 exclude_files = ["**/node_modules"]
 allowed_outbound_hosts = [
     "postgres://*:5438",
-    "tcp://127.0.0.1:*", # Uncomment this line to while using the StarlingMonkey Debugger
+    # "tcp://127.0.0.1:*", # Uncomment this line to while using the StarlingMonkey Debugger
 ]
 
 [component.football-js.variables]
