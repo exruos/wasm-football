@@ -86,20 +86,16 @@ if (scenario === 'coldstart') {
 } else if (scenario === 'scaling') {
     options.thresholds = safetyThresholds;
     options.scenarios.scaling = {
-        executor: 'ramping-arrival-rate',
-        startRate: 1,
-        timeUnit: '1s',
-        preAllocatedVUs: 1000,
-        maxVUs: 1000,
-
+        executor: 'ramping-vus',
+        startVUs: 0,
+        gracefulRampDown: '10s',
         stages: [
-            { target: 100, duration: '1m' },     // baseline
-            { target: 500, duration: '1m' },     // gradual ramp
-            { target: 1000, duration: '1m' },    // cross scaling threshold
-            { target: 1000, duration: '3m' },    // steady-state energy measurement
-            { target: 250, duration: '1m' },     // ramp down
-            { target: 0, duration: '30s' },      // stop traffic
-            { target: 0, duration: '3m' },       // observe cooldown
+            { duration: '2m', target: 40 },  // warm-up / KEDA reacts
+            { duration: '2m', target: 80 },  // cross the scaling threshold
+            { duration: '4m', target: 100 }, // reach steady state
+            { duration: '2m', target: 100 }, // steady state
+            { duration: '60s', target: 20 }, // ramp down
+            { duration: '2m', target: 0 },   // cooldown / observe scale-to-zero
         ],
     };
 } else if (scenario === 'baseline') {
@@ -112,10 +108,12 @@ if (scenario === 'coldstart') {
     };
 } else if (scenario === 'warmup') {
     options.scenarios.warmup = {
-        executor: 'per-vu-iterations',
-        vus: 32,
-        iterations: 50,
-        maxDuration: '30s',
+        executor: 'ramping-vus',
+        startVUs: 0,
+        gracefulRampDown: '10s',
+        stages: [
+            { duration: '30s', target: 20 },
+        ],
     };
 }
 

@@ -7,6 +7,7 @@ spec:
     name: football-app
   minReplicaCount: 0
   pollingInterval: 5
+  cooldownPeriod: 30
   triggers:
     - type: external-push
       metadata:

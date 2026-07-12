@@ -21,10 +21,10 @@ patches:
         value: true
       - op: remove
         path: /spec/replicas
-  - target:
-      kind: ScaledObject
-      name: football-app-scaler
-    patch: |-
-      - op: add
-        path: /spec/cooldownPeriod
-        value: 15
+  # - target:
+  #     kind: ScaledObject
+  #     name: football-app-scaler
+  #   patch: |-
+  #     - op: add
+  #       path: /spec/cooldownPeriod
+  #       value: 10
