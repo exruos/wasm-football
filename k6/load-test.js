@@ -1,7 +1,7 @@
 import http from 'k6/http';
 import { check, randomSeed } from 'k6';
 import { SharedArray } from 'k6/data';
-import { randomItem } from 'https://jslib.k6.io/k6-utils/1.6.0/index.js';
+import { randomItem, tagWithCurrentStageIndex } from 'https://jslib.k6.io/k6-utils/1.6.0/index.js';
 
 const seasons = [
     "2012/2013",
@@ -36,6 +36,9 @@ const playerIds = new SharedArray('player IDs', function () {
 });
 const teamIds = new SharedArray('team IDs', function () {
     return JSON.parse(open('./pools/team-ids.json'));
+});
+const teamApiIds = new SharedArray('team API IDs', function () {
+    return JSON.parse(open('./pools/team-api-ids.json'));
 });
 
 const scenario = __ENV.scenario;
@@ -84,18 +87,19 @@ if (scenario === 'coldstart') {
     options.thresholds = safetyThresholds;
     options.scenarios.scaling = {
         executor: 'ramping-arrival-rate',
-        startVUs: 10,            // How many VUs to start with
-        timeUnit: '1s',          // Define rate per second
-        preAllocatedVUs: 1000,    // Pre-allocate VUs so k6 doesn't bottleneck allocating memory
-        maxVUs: 3000,            // Upper limit of VUs allowed
+        startRate: 1,
+        timeUnit: '1s',
+        preAllocatedVUs: 1000,
+        maxVUs: 1000,
 
         stages: [
-            { duration: '1m', target: 100 },   // Baseline: Ramp up to 100 RPS (System is stable, minimal pods)
-            { duration: '3m', target: 100 },   // Stay at 100 RPS
-            { duration: '2m', target: 1200 },  // Spike: Ramp up to 1200 RPS (This should trigger HPA/KEDA scale-up)
-            { duration: '5m', target: 1200 },  // Sustained Load: Hold 1200 RPS to see how scaled pods handle energy
-            { duration: '30s', target: 0 },   // Scale Down: Drop traffic to 0 to measure cooldown energy waste
-            { duration: '5m', target: 0 },    // Cooldown observation window
+            { target: 100, duration: '1m' },     // baseline
+            { target: 500, duration: '1m' },     // gradual ramp
+            { target: 1000, duration: '1m' },    // cross scaling threshold
+            { target: 1000, duration: '3m' },    // steady-state energy measurement
+            { target: 250, duration: '1m' },     // ramp down
+            { target: 0, duration: '30s' },      // stop traffic
+            { target: 0, duration: '3m' },       // observe cooldown
         ],
     };
 } else if (scenario === 'baseline') {
@@ -120,46 +124,95 @@ if (scenario === 'coldstart') {
 let isSeeded = false;
 
 export default function () {
+    if (scenario === 'scaling') {
+        tagWithCurrentStageIndex();
+    }
+
     if (!isSeeded) {
         randomSeed(__VU * 1000 + 42);
         isSeeded = true;
     }
 
-    let response;
+    let response, subChoice;
 
     if (scenario === 'scaling' || scenario === 'warmup') {
         const endpoint = pickEndpoint(Math.random());
         switch (endpoint) {
 
             case 'simple':
-                response = http.get(`${baseUrl}/players/${randomItem(playerIds)}`);
+                subChoice = Math.floor(Math.random() * 3);
+
+                if (subChoice === 0) {
+                    response = http.get(
+                        `${baseUrl}/players/${randomItem(playerIds)}`,
+                        { tags: { name: '/players/:id' } }
+                    );
+                } else if (subChoice === 1) {
+                    response = http.get(
+                        `${baseUrl}/teams/${randomItem(teamIds)}`,
+                        { tags: { name: '/teams/:id' } }
+                    );
+                } else {
+                    response = http.get(
+                        `${baseUrl}/match/${randomItem(matchIds)}`,
+                        { tags: { name: '/match/:id' } }
+                    );
+                }
                 break;
 
             case 'detailed':
-                response = http.get(`${baseUrl}/teams/record/${randomItem(teamIds)}`);
+                subChoice = Math.floor(Math.random() * 2);
+
+                if (subChoice === 0) {
+                    response = http.get(
+                        `${baseUrl}/players/record/${randomItem(playerIds)}`,
+                        { tags: { name: '/players/record/:id' } }
+                    );
+                } else {
+                    response = http.get(
+                        `${baseUrl}/teams/record/${randomItem(teamIds)}`,
+                        { tags: { name: '/teams/record/:id' } }
+                    );
+                }
                 break;
 
             case 'lookup':
-                response = http.get(`${baseUrl}/match/team/${randomItem(matchIds)}`);
+                response = http.get(
+                    `${baseUrl}/match/team/${randomItem(teamApiIds)}`,
+                    { tags: { name: '/match/team/:id' } }
+                );
                 break;
 
             case 'aggregate':
                 let randomSeason = encodeURIComponent(randomItem(seasons));
                 let randomLeague = encodeURIComponent(randomItem(leagues));
 
-                response = http.get(`${baseUrl}/match/result-table?season=${randomSeason}&leagueName=${randomLeague}`);
+                response = http.get(
+                    `${baseUrl}/match/result-table?season=${randomSeason}&leagueName=${randomLeague}`,
+                    { tags: { name: '/match/result-table' } }
+                );
                 break;
         }
     } else if (scenario === 'coldstart') {
-        response = http.get(`${baseUrl}/players/1`);
+        response = http.get(
+            `${baseUrl}/players/1`,
+            { tags: { name: '/players/:id' } }
+        );
     } else if (scenario === 'baseline') {
         let randomSeason = encodeURIComponent(randomItem(seasons));
         let randomLeague = encodeURIComponent(randomItem(leagues));
 
-        response = http.get(`${baseUrl}/match/result-table?season=${randomSeason}&leagueName=${randomLeague}`);
+        response = http.get(
+            `${baseUrl}/match/result-table?season=${randomSeason}&leagueName=${randomLeague}`,
+            { tags: { name: '/match/result-table' } }
+        );
     }
 
-    check(response, {
+    const checkOutput = check(response, {
         'status is 200': (r) => r.status === 200,
     });
+
+    if (!checkOutput) {
+        console.error(`Request failed with status ${response.status} for URL: ${response.url}`);
+    }
 }
