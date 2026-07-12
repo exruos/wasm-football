@@ -39,7 +39,7 @@ Write-Host "=========================================================" -Foregrou
 try {
     if ($Scenario -ne "coldstart") {
         Write-Host "`n[Warmup] Executing a warmup run to stabilize the target..." -ForegroundColor Yellow
-        k6 run --env scenario="warmup" $ScriptName
+        k6 run --quiet --env scenario="warmup" $ScriptName
     }
     else {
         Write-Host "Fetching current KEDA configuration..."
@@ -98,6 +98,7 @@ try {
 
         # 2. RUN BENCHMARK
         k6 run `
+            --quiet `
             -o experimental-prometheus-rw `
             --env scenario=$Scenario `
             $ScriptName
