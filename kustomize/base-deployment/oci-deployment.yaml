@@ -29,10 +29,10 @@ spec:
             httpGet:
               path: /ready
               port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
+            initialDelaySeconds: 0
+            periodSeconds: 1
+            timeoutSeconds: 1
+            failureThreshold: 1
           livenessProbe:
             httpGet:
               path: /health
