@@ -1,9 +1,4 @@
 daemonset:
-  hostPID: true
-  securityContext:
-    privileged: true
-
-deamonset:
   resources:
     limits:
       cpu: 500m
