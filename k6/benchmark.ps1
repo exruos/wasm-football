@@ -148,7 +148,7 @@ finally {
     if ($Scenario -eq "coldstart") {
         Write-Host "`n[Cleanup] Restoring original KEDA cooldownPeriod..." -ForegroundColor Cyan
         Write-Host "Restoring original cooldownPeriod ($originalCooldown seconds)..."
-        kubectl patch scaledobject $scaledObjectName -n football --type='merge' -p "{\`"spec\`":{\`"cooldownPeriod\`":$originalCooldown}}"
+        kubectl patch scaledobject $scaledObjectName -n football --type='merge' -p "{""spec"":{""cooldownPeriod"":$originalCooldown}}"
     }
 
     # Clean up environment variable

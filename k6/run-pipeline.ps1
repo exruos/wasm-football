@@ -4,7 +4,7 @@ param (
     [string]$Target,
 
     [Parameter(Mandatory = $false)]
-    [int]$BaselineReplays = 10,
+    [int]$BaselineReplays = 0,
 
     [Parameter(Mandatory = $false)]
     [int]$ColdstartReplays = 30,
