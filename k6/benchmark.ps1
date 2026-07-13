@@ -50,8 +50,8 @@ try {
         }
         Write-Host "Original cooldown period is: $originalCooldown seconds"
 
-        Write-Host "Setting cooldownPeriod to 0..."
-        kubectl patch scaledobject $scaledObjectName -n football --type='merge' -p '{"spec":{"cooldownPeriod":0}}'
+        Write-Host "Setting cooldownPeriod to 20..."
+        kubectl patch scaledobject $scaledObjectName -n football --type='merge' -p '{"spec":{"cooldownPeriod":20}}'
     }
 
     # --- Safe execution loop ---
@@ -87,6 +87,27 @@ try {
             if ($i -gt 1) {
                 Write-Host "[Coldstart Setup] Holding for a 30-second energy cooling window..." -ForegroundColor Yellow
                 Start-Sleep -Seconds 30
+            }
+        } elseif ($Scenario -eq "scaling") {
+            Write-Host "`n[Scaling Setup] Ensuring target is at one pod scaled before the next replay..." -ForegroundColor Magenta
+            while ($true) {
+                Write-Host "[Scaling Setup] Triggering a single request to wake up the target..." -ForegroundColor Yellow
+                k6 run -q --summary-mode=disabled --env scenario="coldstart" $ScriptName
+                if ($Runtime -eq "wasm") {
+                    $ReadyReplicas = kubectl get spinapp $DeploymentName -n $Namespace -o jsonpath='{.status.readyReplicas}' 2>$null
+                    $IsFullyScaled = -not [string]::IsNullOrEmpty($ReadyReplicas) -and $ReadyReplicas -eq 1
+                }
+                else {
+                    $ReadyReplicas = kubectl get deployment $DeploymentName -n $Namespace -o jsonpath='{.status.readyReplicas}' 2>$null
+                    $IsFullyScaled = -not [string]::IsNullOrEmpty($ReadyReplicas) -and $ReadyReplicas -eq 1
+                }
+            
+                if ($IsFullyScaled) {
+                    Write-Host "`n[Scaling Setup] Target '$DeploymentName' is at one pod scaled and ready." -ForegroundColor Green
+                    break
+                }
+                Write-Host "." -NoNewline -ForegroundColor Gray
+                Start-Sleep -Seconds 10
             }
         }
 
