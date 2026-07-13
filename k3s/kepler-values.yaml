@@ -1,11 +1,26 @@
-monitor:
-  interval: 1s
-  staleness: 500ms
-  maxTerminated: 100
-  minTerminatedEnergyThreshold: 10
+daemonset:
+  hostPID: true
+  securityContext:
+    privileged: true
 
-exporter:
-  prometheus:
-    metricsLevel:
-      - node
-      - pod
+deamonset:
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+config:
+  monitor:
+    interval: 1s
+    staleness: 500ms
+    maxTerminated: 100
+    minTerminatedEnergyThreshold: 0
+
+  exporter:
+    prometheus:
+      metricsLevel:
+        - node
+        - pod
