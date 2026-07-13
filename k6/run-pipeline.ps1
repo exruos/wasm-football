@@ -24,7 +24,7 @@ $TargetMap = @{
     "oci-spring" = @{ Baseline = "spring-baseline"; Scaled = "spring-scaled" }
 }
 
-$TargetsToRun = if ($null -ne $Target) { @($Target) } else { $TargetMap.Keys }
+$TargetsToRun = if ($Target) { @($Target) } else { $TargetMap.Keys }
 
 foreach ($CurrentTarget in $TargetsToRun) {
         
