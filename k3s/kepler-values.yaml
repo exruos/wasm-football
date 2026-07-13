@@ -11,8 +11,8 @@ config:
   monitor:
     interval: 1s
     staleness: 500ms
-    maxTerminated: 100
-    minTerminatedEnergyThreshold: 0
+    maxTerminated: 1000
+    minTerminatedEnergyThreshold: 0.0001
 
   exporter:
     prometheus:

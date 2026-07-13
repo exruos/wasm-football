@@ -4,7 +4,7 @@ param (
     [string]$Target,
 
     [Parameter(Mandatory = $false)]
-    [int]$BaselineReplays = 0,
+    [int]$BaselineReplays = 10,
 
     [Parameter(Mandatory = $false)]
     [int]$ColdstartReplays = 30,
@@ -20,7 +20,7 @@ $TargetMap = @{
     "wasm-rust"  = @{ Baseline = "wasm-rust-baseline"; Scaled = "wasm-rust-scaled" }
     "wasm-js"    = @{ Baseline = "wasm-js-baseline"; Scaled = "wasm-js-scaled" }
     "oci-axum"   = @{ Baseline = "axum-baseline"; Scaled = "axum-scaled" }
-    "oci-node"   = @{ Baseline = "node-baseline"; Scaled = "node-scaled" }
+    "oci-node"   = @{ Baseline = "node-baseline"; Scaled = "node-scaled" } 
     "oci-spring" = @{ Baseline = "spring-baseline"; Scaled = "spring-scaled" }
 }
 
