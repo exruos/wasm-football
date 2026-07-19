@@ -5,18 +5,19 @@ requires-python = ">=3.13"
 dependencies = [
     "altair>=6.2.2",
     "httpx>=0.28.1",
-    "marimo[mcp]>=0.23.13",
+    "marimo[mcp]>=0.23.14",
     "numpy>=2.5.1",
     "pandas>=3.0.3",
     "polars>=1.42.1",
-    "pyarrow>=24.0.0",
-    "ruff>=0.15.20",
-    "ty>=0.0.56",
+    "pyarrow>=25.0.0",
+    "pydantic-ai>=2.13.0",
+    "ruff>=0.15.22",
+    "ty>=0.0.61",
 ]
 
 [dependency-groups]
 dev = [
     "python-lsp-ruff>=2.3.1",
     "python-lsp-server>=1.14.0",
-    "websockets>=16.0",
+    "websockets>=16.1.1",
 ]
