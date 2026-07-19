@@ -10,6 +10,7 @@ dependencies = [
     "pandas>=3.0.3",
     "polars>=1.42.1",
     "pyarrow>=25.0.0",
+    "pydantic-ai>=2.13.0",
     "ruff>=0.15.22",
     "ty>=0.0.61",
 ]
