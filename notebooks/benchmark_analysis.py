@@ -16,53 +16,7 @@ def _():
     import polars.selectors as cs
     import glob
 
-    return glob, mo, pl
-
-
-@app.cell(disabled=True, hide_code=True)
-def load_metric_data(glob, pl):
-    def load_metric_data_without_normalization(metric: str, scenario: str) -> pl.DataFrame:
-        path_pattern = f"./parquet/*/{scenario}/{metric}_*.parquet"
-        dir_regex = f"parquet/([^/]+)/{scenario}"
-        iter_regex = r"_(\d+)\.parquet$"
-
-        all_files = glob.glob(path_pattern)
-        # Filter out empty parquet files (0 rows) that have Null-typed columns
-        # which cause schema unification failures when unioned with real data files
-        empty_files = [f for f in all_files if pl.scan_parquet(f).select(pl.len()).collect()['len'][0] == 0]
-        files = [f for f in all_files if f not in empty_files]
-
-        if empty_files:
-            print(f"Skipping {len(empty_files)} empty file(s) for {metric}/{scenario}:")
-            for f in empty_files:
-                print(f"  - {f}")
-
-        if not files:
-            return pl.DataFrame()
-
-        return (
-            pl.scan_parquet(
-                files,
-                include_file_paths="full_path",
-            )
-            .with_columns(
-                [
-                    # Extract the directory name
-                    pl.col("full_path").str.extract(dir_regex).alias("dir_name"),
-                    # Extract the iteration number and cast it to an integer
-                    pl.col("full_path")
-                    .str.extract(iter_regex)
-                    .cast(pl.Int32)
-                    .alias("iteration"),
-                ]
-            )
-            .drop("full_path")
-            # Optional: Sort the final data cleanly by directory and iteration order
-            .sort(["dir_name", "iteration"])
-            .collect()
-        )
-
-    return
+    return glob, pl
 
 
 @app.cell
@@ -104,25 +58,6 @@ def _(glob, pl):
         )
 
     return (load_metric_data,)
-
-
-@app.cell
-def _():
-    # Load baseline p95 data
-    #df_p95_baseline = load_metric_data(metric="p95", scenario="baseline")
-
-    # df_rps_coldstart = load_metric_data(metric='rps', scenario="coldstart")
-
-    # Load scaling p99 data
-    #df_p99_scaling = load_metric_data(metric="p99", scenario="scaling")
-    return
-
-
-@app.cell
-def _(load_metric_data):
-    df_joules_baseline = load_metric_data(metric="pod_joules", scenario="baseline", time_col="timestamp")
-    df_joules_baseline
-    return
 
 
 @app.cell
@@ -279,14 +214,14 @@ def _(build_scenario_table, df_all_metrics, pl):
         df_iter_zone = df_raw_joules.group_by(["dir_name", "iteration", "zone"]).agg(
             (pl.col("value").max() - pl.col("value").min()).alias("iter_joules")
         )
-    
+
         # 2. Sum across iterations per zone, then pivot zones into separate columns
         df_energy_pivoted = (
             df_iter_zone.group_by(["dir_name", "zone"])
             .agg(pl.col("iter_joules").sum())
             .pivot(on="zone", index="dir_name", values="iter_joules")
         )
-    
+
         # 3. Join back and calculate package, dram, total, and per-request metrics
         df_energy_baseline = (
             df_throughput_baseline.join(df_energy_pivoted, on="dir_name", how="left")
@@ -315,34 +250,6 @@ def _(build_scenario_table, df_all_metrics, pl):
         df_metrics_baseline = pl.DataFrame()
 
     df_metrics_baseline
-    return (df_baseline,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    - change the max values etc. to the total max/peak of all runs
-    - change total joules to joules max - min
-    - make joules differ in dram and packages to calculate total
-    """)
-    return
-
-
-@app.cell
-def _(df_baseline):
-    df_baseline
-    return
-
-
-@app.cell
-def _(load_metric_data):
-    df_coldstart = load_metric_data("rps", scenario="coldstart")
-    df_coldstart
-    return
-
-
-@app.cell
-def _():
     return
 
 
