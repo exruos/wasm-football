@@ -10,7 +10,6 @@ def _():
     from datetime import datetime, timezone, timedelta
     import altair as alt
     import httpx
-    import marimo as mo
     import polars as pl
     from polars import DataFrame
 
@@ -152,6 +151,15 @@ def _():
 
 
 @app.cell
+def _():
+    scenario_ignored_metrics: dict[str, set[str]] = {
+        "coldstart": {"pods", "requests", "iterations", "vus", "rps", "memory", "checks_rate", "cpu_usage"},
+        "baseline":  {"pods"},
+    }
+    return (scenario_ignored_metrics,)
+
+
+@app.cell
 def _(jsonl_file, read_jsonl):
     # Read the benchmark runs from JSONL
     df_runs = read_jsonl(jsonl_file)
@@ -160,7 +168,16 @@ def _(jsonl_file, read_jsonl):
 
 
 @app.cell
-def _(datetime, df_runs, endpoint, metrics, query_range, step, timedelta):
+def _(
+    datetime,
+    df_runs,
+    endpoint,
+    metrics,
+    query_range,
+    scenario_ignored_metrics: dict[str, set[str]],
+    step,
+    timedelta,
+):
     import os
 
     # Create output directory for parquet files
@@ -177,7 +194,7 @@ def _(datetime, df_runs, endpoint, metrics, query_range, step, timedelta):
         framework = run["Framework"]
         scenario = run["Scenario"]
         iteration = run["Iteration"]
-   
+
         benchmark_delta = timedelta(seconds=5)
         start_time: datetime = run["StartTime"] - benchmark_delta
         end_time: datetime = run["EndTime"] + (timedelta(seconds=10) if scenario == "coldstart" else benchmark_delta)
@@ -185,8 +202,12 @@ def _(datetime, df_runs, endpoint, metrics, query_range, step, timedelta):
         print(f"Processing: {framework}/{runtime}/{scenario} Iteration: {iteration}")
         print(f" Time range: {start_time} to {end_time}")
 
-        # Query all metrics for this run
+        # Query metrics for this run, skipping scenario-irrelevant ones
+        ignored = scenario_ignored_metrics.get(scenario, set())
         for metric_name, promql_query in metrics.items():
+            if metric_name in ignored:
+                print(f"  Skipping {metric_name} (irrelevant for '{scenario}')")
+                continue
             try:
                 df_metric = query_range(
                     endpoint=endpoint,
