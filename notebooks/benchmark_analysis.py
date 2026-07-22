@@ -208,23 +208,23 @@ def _(build_scenario_table, df_all_metrics, pl):
         # Energy metrics: use raw pod_joules from df_all_metrics, not df_baseline
         # (df_baseline already has pod_joules aggregated as max per iteration,
         #  so max - min would always be 0)
-        df_raw_joules = df_all_metrics[("pod_joules", "baseline")]
+        df_raw_joules_baseline = df_all_metrics[("pod_joules", "baseline")]
 
         # 1. Compute net energy per (dir_name, iteration, zone)
-        df_iter_zone = df_raw_joules.group_by(["dir_name", "iteration", "zone"]).agg(
+        df_iter_zone_baseline = df_raw_joules_baseline.group_by(["dir_name", "iteration", "zone"]).agg(
             (pl.col("value").max() - pl.col("value").min()).alias("iter_joules")
         )
 
         # 2. Sum across iterations per zone, then pivot zones into separate columns
-        df_energy_pivoted = (
-            df_iter_zone.group_by(["dir_name", "zone"])
+        df_energy_pivoted_baseline = (
+            df_iter_zone_baseline.group_by(["dir_name", "zone"])
             .agg(pl.col("iter_joules").sum())
             .pivot(on="zone", index="dir_name", values="iter_joules")
         )
 
         # 3. Join back and calculate package, dram, total, and per-request metrics
         df_energy_baseline = (
-            df_throughput_baseline.join(df_energy_pivoted, on="dir_name", how="left")
+            df_throughput_baseline.join(df_energy_pivoted_baseline, on="dir_name", how="left")
             .with_columns(
                 (pl.col("package") + pl.col("dram")).alias("total_joules")
             )
@@ -250,6 +250,80 @@ def _(build_scenario_table, df_all_metrics, pl):
         df_metrics_baseline = pl.DataFrame()
 
     df_metrics_baseline
+    return
+
+
+@app.cell
+def _(build_scenario_table, df_all_metrics, pl):
+    # --- Compute all metrics for coldstart scenario ---
+    df_coldstart = build_scenario_table(df_all_metrics, "coldstart")
+
+    if len(df_coldstart) > 0:
+        # Latency & Responsiveness metrics - this is the time to first response
+        df_latency_coldstart = df_coldstart.group_by("dir_name").agg([
+            pl.col("p95").mean().alias("latency_p95_mean"),
+            pl.col("p99").mean().alias("latency_p99_mean"),
+            pl.col("p95").median().alias("latency_p95_median"),
+            pl.col("p95").std().alias("latency_stddev"),
+            (pl.col("p95").std() / pl.col("p95").mean()).alias("latency_cv"),
+            pl.col("p95").max().alias("latency_p95_max"),
+            pl.col("p95").min().alias("latency_p95_min"),
+            pl.col("p95").count().alias("sample_count"),
+        ]).with_columns([
+            # 2. Margin of Error for 95% Confidence Interval (Z = 1.96)
+            (
+                1.96 * (pl.col("latency_stddev") / pl.col("sample_count").sqrt())
+            ).alias("latency_p95_ci_margin")
+        ]).with_columns([
+            # 3. Lower and Upper bounds for the p95 mean
+            (pl.col("latency_p95_mean") - pl.col("latency_p95_ci_margin")).alias(
+                "latency_p95_ci_lower"
+            ),
+            (pl.col("latency_p95_mean") + pl.col("latency_p95_ci_margin")).alias(
+                "latency_p95_ci_upper"
+            ),
+        ])
+
+
+        # Energy metrics: use raw pod_joules from df_all_metrics, not df_coldstart
+        # (df_coldstart already has pod_joules aggregated as max per iteration,
+        #  so max - min would always be 0)
+        df_raw_joules_coldstart = df_all_metrics[("pod_joules", "coldstart")]
+
+        # 1. Compute net energy per (dir_name, iteration, zone)
+        df_iter_zone_coldstart = df_raw_joules_coldstart.group_by(["dir_name", "iteration", "zone"]).agg(
+            (pl.col("value").max() - pl.col("value").min()).alias("iter_joules")
+        )
+
+        # 2. Sum across iterations per zone, then pivot zones into separate columns
+        df_energy_pivoted_coldstart = (
+            df_iter_zone_coldstart.group_by(["dir_name", "zone"])
+            .agg(pl.col("iter_joules").sum())
+            .pivot(on="zone", index="dir_name", values="iter_joules")
+        )
+
+        # 3. Join back and calculate package, dram, and total joules
+        df_energy_coldstart = (
+            df_latency_coldstart.join(df_energy_pivoted_coldstart, on="dir_name", how="left")
+            .with_columns(
+                (pl.col("package") + pl.col("dram")).alias("total_joules")
+            )
+            .select([
+                "dir_name",
+                pl.col("package").alias("cpu_joules"),
+                pl.col("dram").alias("dram_joules"),
+                "total_joules",
+            ])
+        )
+
+        # Combine all metrics into a single summary table
+        df_metrics_coldstart = df_latency_coldstart.join(
+            df_energy_coldstart, on=["dir_name"], how="left"
+        ).sort(["dir_name"]).unique()
+    else:
+        df_metrics_coldstart = pl.DataFrame()
+
+    df_metrics_coldstart
     return
 
 
