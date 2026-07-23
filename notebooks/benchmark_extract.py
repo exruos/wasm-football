@@ -196,7 +196,7 @@ def _(
         iteration = run["Iteration"]
 
         benchmark_delta = timedelta(seconds=5)
-        start_time: datetime = run["StartTime"] - benchmark_delta
+        start_time: datetime = run["StartTime"] - (timedelta(seconds=0) if scenario == "coldstart" else benchmark_delta)
         end_time: datetime = run["EndTime"] + (timedelta(seconds=10) if scenario == "coldstart" else benchmark_delta)
 
         print(f"Processing: {framework}/{runtime}/{scenario} Iteration: {iteration}")
