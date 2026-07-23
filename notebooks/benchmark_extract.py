@@ -194,6 +194,8 @@ def _(
         framework = run["Framework"]
         scenario = run["Scenario"]
         iteration = run["Iteration"]
+        if scenario != "coldstart":
+            continue
 
         benchmark_delta = timedelta(seconds=5)
         start_time: datetime = run["StartTime"] - (timedelta(seconds=0) if scenario == "coldstart" else benchmark_delta)
