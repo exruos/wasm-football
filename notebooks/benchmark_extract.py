@@ -136,6 +136,8 @@ def _(DataFrame, datetime, httpx, json, pl, timezone):
 def _():
     metrics = {
         'pod_joules': 'kepler_pod_cpu_joules_total{pod_namespace="football",pod_name=~"football-app-.*"}',
+        'node_joules': 'kepler_node_cpu_joules_total',
+        'node_avg_cpu_watts': 'avg_over_time(kepler_node_cpu_watts)', 
         'pods': 'kube_deployment_status_replicas_available{deployment="football-app", namespace="football"}',
         'requests': 'k6_http_reqs_total',
         'iterations': 'k6_iterations_total',
