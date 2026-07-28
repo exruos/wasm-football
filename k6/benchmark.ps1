@@ -1,10 +1,10 @@
 param (
     [Parameter(Mandatory = $true)]
-    [ValidateSet("wasm-rust", "wasm-js", "oci-axum", "oci-node", "oci-spring")]
+    [ValidateSet("wasm-rust", "wasm-js", "oci-axum", "oci-node", "oci-spring", "oci-native")]
     [string]$Target,
 
     [Parameter(Mandatory = $true)]
-    [ValidateSet("baseline", "coldstart", "scaling")]
+    [ValidateSet("idle", "baseline", "coldstart", "scaling")]
     [string]$Scenario,
 
     [int]$Replays = 5,
@@ -88,7 +88,8 @@ try {
                 Write-Host "[Coldstart Setup] Holding for a 30-second energy cooling window..." -ForegroundColor Yellow
                 Start-Sleep -Seconds 30
             }
-        } elseif ($Scenario -eq "scaling") {
+        }
+        elseif ($Scenario -eq "scaling") {
             Write-Host "`n[Scaling Setup] Ensuring target is at one pod scaled before the next replay..." -ForegroundColor Magenta
             while ($true) {
                 Write-Host "[Scaling Setup] Triggering a single request to wake up the target..." -ForegroundColor Yellow
@@ -117,11 +118,19 @@ try {
         # 1. CAPTURE EXACT START TIME (RFC3339 format required by VictoriaMetrics)
         $StartTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-        # 2. RUN BENCHMARK
-        k6 run `
-            -o experimental-prometheus-rw `
-            --env scenario=$Scenario `
-            $ScriptName
+        # 2. RUN BENCHMARK OR IDLE WAIT
+        if ($Scenario -eq "idle") {
+            $IdleMinutes = 10
+            Write-Host "Scenario is 'idle'. Waiting for $IdleMinutes minutes to measure idle energy..." -ForegroundColor Cyan
+
+            Start-Sleep -Seconds ($IdleMinutes * 60)
+        }
+        else {
+            k6 run `
+                -o experimental-prometheus-rw `
+                --env scenario=$Scenario `
+                $ScriptName
+        }
 
         # 3. CAPTURE EXACT END TIME
         $EndTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")

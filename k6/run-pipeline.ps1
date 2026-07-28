@@ -1,6 +1,6 @@
 param (
     [Parameter(Mandatory = $false)]
-    [ValidateSet("wasm-rust", "wasm-js", "oci-axum", "oci-node", "oci-spring")]
+    [ValidateSet("wasm-rust", "wasm-js", "oci-axum", "oci-node", "oci-spring", "oci-native")]
     [string]$Target,
 
     [Parameter(Mandatory = $false)]
@@ -10,7 +10,10 @@ param (
     [int]$ColdstartReplays = 30,
 
     [Parameter(Mandatory = $false)]
-    [int]$ScalingReplays = 10
+    [int]$ScalingReplays = 10,
+
+    [Parameter(Mandatory = $false)]
+    [bool]$Idle = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,6 +25,7 @@ $TargetMap = @{
     "oci-axum"   = @{ Baseline = "axum-baseline"; Scaled = "axum-scaled" }
     "oci-node"   = @{ Baseline = "node-baseline"; Scaled = "node-scaled" } 
     "oci-spring" = @{ Baseline = "spring-baseline"; Scaled = "spring-scaled" }
+    "oci-native" = @{ Baseline = "native-baseline"; Scaled = "native-scaled" }
 }
 
 $TargetsToRun = if ($Target) { @($Target) } else { $TargetMap.Keys }
@@ -49,6 +53,11 @@ foreach ($CurrentTarget in $TargetsToRun) {
             
     }
     Start-Sleep -Seconds 15
+
+    if ($Idle -eq $true) {
+        Write-Host "Running idle scenario ..." -ForegroundColor Magenta
+        .\benchmark.ps1 -Target $CurrentTarget -Scenario "idle" -Replays 1
+    }
 
     # -------------------------------------------------------------
     # Phase 1: Baseline Scenario
