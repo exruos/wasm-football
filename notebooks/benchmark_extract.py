@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.14"
+__generated_with = "0.23.15"
 app = marimo.App(width="medium")
 
 
@@ -156,7 +156,8 @@ def _():
 def _():
     scenario_ignored_metrics: dict[str, set[str]] = {
         "coldstart": {"pods", "requests", "iterations", "vus", "rps", "memory", "checks_rate", "cpu_usage"},
-        "baseline":  {"pods"},
+        "baseline":  {"pods", "node_joules", "node_avg_cpu_watts"},
+        "idle": {"pods", "requests", "iterations", "vus", "rps", "p95", "p99", "checks_rate", "cpu_usage"}
     }
     return (scenario_ignored_metrics,)
 
@@ -196,8 +197,6 @@ def _(
         framework = run["Framework"]
         scenario = run["Scenario"]
         iteration = run["Iteration"]
-        if scenario != "coldstart":
-            continue
 
         benchmark_delta = timedelta(seconds=5)
         start_time: datetime = run["StartTime"] - (timedelta(seconds=0) if scenario == "coldstart" else benchmark_delta)
