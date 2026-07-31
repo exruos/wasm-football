@@ -3,17 +3,14 @@ import marimo
 __generated_with = "0.23.15"
 app = marimo.App(width="medium")
 
-
-@app.cell
-def _():
+with app.setup:
     import json
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
+
     import altair as alt
     import httpx
     import polars as pl
     from polars import DataFrame
-
-    return DataFrame, alt, datetime, httpx, json, pl, timedelta, timezone
 
 
 @app.cell
@@ -25,7 +22,7 @@ def _():
 
 
 @app.cell
-def _(DataFrame, datetime, httpx, json, pl, timezone):
+def _():
     def read_jsonl(path: str) -> DataFrame:
         rows = []
 
@@ -137,6 +134,7 @@ def _():
     metrics = {
         'pod_joules': 'kepler_pod_cpu_joules_total{pod_namespace="football",pod_name=~"football-app-.*"}',
         'node_joules': 'kepler_node_cpu_joules_total',
+        'node_cpu_watts': 'kepler_node_cpu_watts',
         'node_avg_cpu_watts': 'avg_over_time(kepler_node_cpu_watts)', 
         'pods': 'kube_deployment_status_replicas_available{deployment="football-app", namespace="football"}',
         'requests': 'k6_http_reqs_total',
@@ -154,12 +152,14 @@ def _():
 
 @app.cell
 def _():
-    scenario_ignored_metrics: dict[str, set[str]] = {
-        "coldstart": {"pods", "requests", "iterations", "vus", "rps", "memory", "checks_rate", "cpu_usage"},
-        "baseline":  {"pods", "node_joules", "node_avg_cpu_watts"},
-        "idle": {"pods", "requests", "iterations", "vus", "rps", "p95", "p99", "checks_rate", "cpu_usage"}
+    scenario_metrics: dict[str, set[str]] = {
+        "coldstart": {"node_joules", "node_cpu_watts", "node_avg_cpu_watts", "p95"},
+        "baseline":  {"pod_joules", "iterations", "p95", "p99", "rps", "memory", "cpu_usage"},
+        "idle": {"pod_joules"},
+        "idle-scaled": {"node_joules", "node_cpu_watts", "node_avg_cpu_watts"},
+        "scaling": {"pod_joules", "pods", "requests", "vus", "p95", "p99", "rps", "memory", "checks_rate", "cpu_usage"},
     }
-    return (scenario_ignored_metrics,)
+    return (scenario_metrics,)
 
 
 @app.cell
@@ -172,14 +172,12 @@ def _(jsonl_file, read_jsonl):
 
 @app.cell
 def _(
-    datetime,
     df_runs,
     endpoint,
     metrics,
     query_range,
-    scenario_ignored_metrics: dict[str, set[str]],
+    scenario_metrics: dict[str, set[str]],
     step,
-    timedelta,
 ):
     import os
 
@@ -206,10 +204,9 @@ def _(
         print(f" Time range: {start_time} to {end_time}")
 
         # Query metrics for this run, skipping scenario-irrelevant ones
-        ignored = scenario_ignored_metrics.get(scenario, set())
+        selected_metrics = scenario_metrics.get(scenario, set())
         for metric_name, promql_query in metrics.items():
-            if metric_name in ignored:
-                print(f"  Skipping {metric_name} (irrelevant for '{scenario}')")
+            if metric_name not in selected_metrics:
                 continue
             try:
                 df_metric = query_range(
@@ -243,14 +240,14 @@ def _(
 
 
 @app.cell
-def _(pl):
+def _():
     test_df = pl.read_parquet("parquet/oci-axum/baseline/pod_joules_1.parquet")
     test_df
     return (test_df,)
 
 
 @app.cell
-def _(alt, test_df):
+def _(test_df):
     fig = (
         alt.Chart(test_df)
         .mark_point(size=80)
