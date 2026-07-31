@@ -37,7 +37,7 @@ Write-Host " Replays:  $Replays loop(s)"
 Write-Host "=========================================================" -ForegroundColor Cyan
 
 try {
-    if ($Scenario -ne "coldstart") {
+    if ($Scenario -ne "coldstart" -and $Scenario -ne "idle") {
         Write-Host "`n[Warmup] Executing a warmup run to stabilize the target..." -ForegroundColor Yellow
         k6 run --env scenario="warmup" $ScriptName
     }
@@ -77,6 +77,7 @@ try {
             
                 if ($IsScaledDown) {
                     Write-Host "`n[Coldstart Setup] Target '$DeploymentName' successfully scaled to 0 by KEDA." -ForegroundColor Green
+                    Start-Sleep -Seconds 5
                     break
                 }
                 Write-Host "." -NoNewline -ForegroundColor Gray
