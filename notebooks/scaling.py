@@ -7,7 +7,7 @@ with app.setup:
     import altair as alt
     import marimo as mo
     import polars as pl
-    from common_notebook import build_scenario_table, load_scenario_metrics
+    from common_notebook import build_scenario_table, load_scenario_metrics, color_scale
     alt.data_transformers.enable("vegafusion")
 
 
@@ -438,7 +438,7 @@ def _():
                 x=alt.X("normalized_time:Q", title="Normalized Time (s)"),
                 y=alt.Y("band_lower:Q", title=f"{metric.upper()} Value"),
                 y2="band_upper:Q",
-                color=alt.Color("target:N", title="Target"),
+                color=alt.Color("target:N", scale=color_scale(), title="Target"),
             )
 
             # 3. Build mean line
@@ -488,13 +488,13 @@ def _():
             alt.Chart(df_plot)
             .mark_bar()
             .encode(
-                x=alt.X("target:N", title="Target"),
-                y=alt.Y("joules:Q", title="Mean Joules (Steady Window)"),
+                x=alt.X("joules:Q", title="Mean Joules (Steady Window)"),
+                y=alt.Y("target:N", title="Target"),
                 color=alt.Color("domain:N", title="RAPL Zone"),
                 tooltip=["target", "domain", "joules"],
             )
             .properties(
-               width=180, height=250, title="Steady-State RAPL Energy Breakdown"
+               width=250, height=180, title="Steady-State RAPL Energy Breakdown"
             )
         )
         return chart
@@ -526,14 +526,14 @@ def _():
             alt.Chart(combined)
             .mark_boxplot()
             .encode(
-                x=alt.X("target:N", title="Target"),
-                y=alt.Y("sample:Q", title="Sample Value"),
+                x=alt.X("sample:Q", title="Sample Value"),
+                y=alt.Y("target:N", title="Target"),
                 color=alt.Color("window:N", title="Window"),
                 column=alt.Column(
                     "metric:N", header=alt.Header(labelOrient="bottom")
                 ),
             )
-           .properties(width=140, height=200)
+           .properties(width=250, height=200)
         )
         return chart
 
@@ -544,6 +544,7 @@ def _():
         process_all_metrics_summary,
         process_cooldown_idle_drain,
         process_pod_joules,
+        process_scale_up_responsiveness,
     )
 
 
@@ -603,6 +604,15 @@ def _(
         df_master_summary,
         ts_charts,
     )
+
+
+@app.cell
+def _(df_scaling, process_scale_up_responsiveness):
+    df_responsiveness = process_scale_up_responsiveness(
+        df_scaling["p95"], df_scaling["checks_rate"], df_scaling["pods"]
+    )
+    df_responsiveness
+    return
 
 
 @app.cell
@@ -687,6 +697,253 @@ def _():
     1. **Node Density:** Runtimes like `axum` or `wasm-rust` allow you to pack **10x to 40x more idle container replicas** on a single cloud server compared to heavy Java/JVM stacks (`oci-spring`).
     2. **Cold Start & Baseline Costs:** In auto-scaling microservices (like Knative or KEDA), high idle resource baselines drive up cloud infrastructure bills even when traffic is low.
     """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(df_scaling):
+    category_map = {
+        "/players/:id": "simple",
+        "/teams/:id": "simple",
+        "/match/:id": "simple",
+        "/players/record/:id": "detailed",
+        "/teams/record/:id": "detailed",
+        "/match/team/:id": "lookup",
+        "/match/result-table": "aggregate",
+    }
+
+    # Group by 'name' and compute total requests
+    df_pie_data = (
+        df_scaling["requests"]
+       .with_columns(
+            # 2. Safely map categories, falling back to 'other' for unmapped routes
+            pl.col("url")
+            .cast(pl.String)
+            .replace_strict(category_map, default="other")
+            .alias("category")
+        )
+        .group_by("category")
+        .agg(pl.len().alias("total_requests"))  # pl.len() counts rows per group
+        .with_columns(
+            (pl.col("total_requests") / pl.col("total_requests").sum() * 100).alias("pct")
+        )
+        .sort("total_requests", descending=True)
+    )
+
+
+
+    base = alt.Chart(df_pie_data).encode(
+        theta=alt.Theta("total_requests:Q", stack=True),
+        color=alt.Color("category:N", title="Request Type / Category"),
+        tooltip=[
+            alt.Tooltip("category:N", title="Category"),
+            alt.Tooltip("total_requests:Q", format=",", title="Total Requests"),
+            alt.Tooltip("pct:Q", format=".1f", title="Percentage (%)"),
+        ]
+    )
+
+    # 1. Arc slices
+    arcs = base.mark_arc(
+        innerRadius=50,  # Set to 0 if you want a solid pie chart instead of a donut
+        outerRadius=120,
+        stroke="white",
+        strokeWidth=2
+    )
+
+    # 2. Percentage labels directly on the slices
+    text = base.mark_text(
+        radius=85,
+        fontWeight="bold",
+        fontSize=13,
+        fill="white"
+    ).encode(
+        text=alt.Text("pct:Q", format=".1f")
+    )
+
+    pie_chart = (
+        (arcs + text)
+        .properties(
+            title={
+                "text": "Request Distribution by Category",
+                "subtitle": "Total volume per request category over 13-minute run",
+            },
+            width=350,
+            height=350,
+        )
+        .configure_view(strokeWidth=0)
+    )
+
+    pie_chart
+    return (df_pie_data,)
+
+
+@app.cell
+def _(df_pie_data):
+    df_pie_data
+    return
+
+
+@app.cell
+def _(df_metrics_scaling, df_rps_sum_scaling_avg, targets_color_scale):
+    # Chart B: Throughput (RPS Mean + Min/Max Range)
+    rps_bars_scaling = (
+        alt.Chart(df_rps_sum_scaling_avg)
+        .mark_bar(color="#4c78a8")
+        .encode(
+            y=alt.Y("target:N", title="Target", sort="-x"),
+            x=alt.X("mean_rps:Q", title="Requests / Sec"),
+            color=alt.Color("target:N", scale=color_scale(), legend=None)
+        )
+    )
+
+    rps_range_scaling = (
+        alt.Chart(df_rps_sum_scaling_avg)
+        .mark_rule(color="#111111", strokeWidth=2)
+        .encode(x="dir_name:N", y="min_rps:Q", y2="max_rps:Q")
+    )
+
+    chart_rps_scaling = (rps_bars_scaling).properties(
+        title=alt.TitleParams(
+            text="Avg Throughput Capacity (RPS)",
+            subtitle="13 min, n=10, VUs=0 to 100, Higher is better"
+        )
+        , width=320, height=260
+    )
+
+    ###
+    # Chart E: Cost per Load: Normalized Resource Efficiency (Grouped Bar Chart)
+    # 1. Unpivot normalized metrics into long format
+    df_normalized_scaling = df_metrics_scaling.unpivot(
+        index="dir_name",
+        on=["cpu_per_1k_rps", "memory_mb_per_1k_rps"],
+        variable_name="Resource Metric",
+        value_name="CostPer1kRPS",
+    ).with_columns(
+        pl.col("Resource Metric").replace(
+            {
+                "cpu_per_1k_rps": "CPU % per 1k RPS",
+                "memory_mb_per_1k_rps": "Memory (MiB) per 1k RPS",
+            }
+        )
+    )
+
+    # 2. Grouped Bar Chart by Metric
+    chart_normalized_cost_scaling = (
+        alt.Chart(df_normalized_scaling)
+        .mark_bar(opacity=0.85)
+        .encode(
+            y=alt.Y("dir_name:N", title="Target", sort="x"),
+            x=alt.X("CostPer1kRPS:Q", title="Cost per 1k RPS (Lower is better)"),
+            color=alt.Color("dir_name:N", scale=targets_color_scale, legend=None),
+            row=alt.Row(
+                "Resource Metric:N",
+                title=None,
+                header=alt.Header(labelFontSize=12, labelFontWeight="bold"),
+            ),
+        )
+        .properties(
+            width=380,
+            height=180,
+            title="Normalized Cost per Load (Scaling Efficiency)",
+        )
+        .resolve_scale(x="independent")  # Keeps CPU % and Memory MB scales separate
+    )
+
+    # requests per joule
+    rpj_bars_scaling = (
+        alt.Chart(df_metrics_scaling)
+        .mark_bar(opacity=0.85)
+        .encode(
+            y=alt.Y(
+                "dir_name:N",
+                title="Target",
+                sort='x',
+            ),
+            x=alt.X("requests_per_joule:Q", title="Requests per Joule"),
+            color=alt.Color("dir_name:N", scale=targets_color_scale, legend=None),
+        )
+    )
+
+    chart_scaling_rpj = (
+        (rpj_bars_scaling)
+        .properties(
+        title=alt.TitleParams(
+            text="Workload Efficiency",
+            subtitle="13 min, n=10, VUs=0 to 100, Higher is better"
+        ),
+        width=400, height=220,
+        )
+    )
+
+    # 1. Base scatter plot (bubbles)
+    bubbles_scaling = (
+        alt.Chart(df_metrics_scaling)
+        .mark_circle(opacity=0.85, stroke="black", strokeWidth=1)
+        .encode(
+            x=alt.X(
+                "avg_memory_mb:Q",
+                title="Avg Memory Footprint (MB)",
+                scale=alt.Scale(zero=True),  # Force X-axis to start at 0
+            ),
+            y=alt.Y(
+                "avg_cpu_pct:Q",
+                title="Avg CPU Usage (%)",
+                scale=alt.Scale(zero=True),  # Force Y-axis to start at 0
+            ),
+            size=alt.Size(
+                "mean_pods:Q",
+                title="Mean Active Pods",
+                scale=alt.Scale(range=[600, 2200]),  # Scaled up slightly to fit text inside
+                legend=None,
+            ),
+            color=alt.Color("target:N", title="Target", scale=color_scale(), legend=None),
+            tooltip=[
+                alt.Tooltip("target:N", title="Target"),
+                alt.Tooltip("avg_memory_mb:Q", format=".1f", title="Avg Memory (MB)"),
+                alt.Tooltip("avg_cpu_pct:Q", format=".2f", title="Avg CPU (%)"),
+                alt.Tooltip("mean_pods:Q", format=".1f", title="Mean Pods"),
+                alt.Tooltip("max_pods:Q", title="Peak Pods"),
+            ],
+        )
+    )
+
+    # 2. Inside text labels (Pod Count centered inside bubbles)
+    pod_count_text = bubbles_scaling.mark_text(
+        align="center",
+        baseline="middle",
+        fontWeight="bold",
+        fontSize=11,
+    ).encode(
+        text=alt.Text("mean_pods:Q", format=".1f"),  # Formats pod count to 1 decimal
+        size=alt.value(11),  # Prevents text size from scaling with bubble size
+        color=alt.value("black"),
+    )
+
+    # 3. Outer labels (Target names placed slightly above the bubbles)
+    target_text = bubbles_scaling.mark_text(
+        align="center",
+        baseline="bottom",
+        dy=-25,  # Offsets text upwards above the circle edge
+        fontWeight="bold",
+        fontSize=12,
+    ).encode(
+        text="dir_name:N",
+        size=alt.value(12),
+        color=alt.value("black"),
+    )
+
+    # Layer together
+    chart_footprint_scaling = (
+        (bubbles_scaling + pod_count_text + target_text)
+        .properties(
+            title={
+                "text": "Infrastructure Footprint Matrix",
+                "subtitle": "Memory vs CPU Usage (Mean Pod Count labeled inside circles)",
+            },
+            width=500,
+            height=380,
+        )
+    )
     return
 
 

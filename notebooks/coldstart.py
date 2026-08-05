@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.15"
+__generated_with = "0.23.16"
 app = marimo.App(width="medium")
 
 with app.setup:
@@ -314,11 +314,11 @@ def _(df_avg_idle_watts, df_metrics, df_response_time):
             pl.len().alias("total_runs"),
             (pl.col("e_joules") > 0.0).sum().alias("valid_runs"),
             ((pl.col("e_joules") > 0.0).sum() / pl.len() * 100).alias("capture_rate_pct"),
-    
+
             # Energy metrics computed ONLY on non-zero runs
             pl.col("e_joules").filter(pl.col("e_joules") > 0.0).mean().alias("mean_e_joules"),
             pl.col("e_joules").filter(pl.col("e_joules") > 0.0).std().alias("std_e_joules"),
-            pl.col("duration").mean().alias("mean_duration_sec")
+            pl.col("duration").mean().round(10).alias("mean_duration_sec")
         )
     )
 
@@ -331,12 +331,18 @@ def _(df_avg_idle_watts, df_metrics, df_response_time):
             values=["mean_e_joules", "std_e_joules", "capture_rate_pct"]
         )
     )
-    return df_energy_per_run, df_final
+    return df_energy_per_run, df_final, df_summary
 
 
 @app.cell
 def _(df_energy_per_run):
     df_energy_per_run
+    return
+
+
+@app.cell
+def _(df_summary):
+    df_summary
     return
 
 

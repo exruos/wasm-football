@@ -1,64 +1,60 @@
 import marimo
 
-__generated_with = "0.23.14"
+__generated_with = "0.23.16"
 app = marimo.App(width="medium")
+
+with app.setup:
+    import glob
+
+    import altair as alt
+    import marimo as mo
+    import polars as pl
+
+
+@app.function
+def load_metric_data(metric: str, scenario: str, time_col: str = "timestamp") -> pl.DataFrame:
+    path_pattern = f"./parquet/*/{scenario}/{metric}_*.parquet"
+    dir_regex = f"parquet/([^/]+)/{scenario}"
+    iter_regex = r"_(\d+)\.parquet$"
+
+    all_files = glob.glob(path_pattern)
+    # Filter out empty parquet files that cause schema unification failures
+    empty_files = [f for f in all_files if pl.scan_parquet(f).select(pl.len()).collect()['len'][0] == 0]
+    files = [f for f in all_files if f not in empty_files]
+
+    if empty_files:
+        print(f"Skipping {len(empty_files)} empty file(s) for {metric}/{scenario}:")
+        for f in empty_files:
+            print(f"  - {f}")
+
+    if not files:
+        return pl.DataFrame()
+
+    return (
+        pl.scan_parquet(files, include_file_paths="full_path", missing_columns="insert", extra_columns="ignore")
+        .with_columns([
+            pl.col("full_path").str.extract(dir_regex).alias("dir_name"),
+            pl.col("full_path").str.extract(iter_regex).cast(pl.Int32).alias("iteration"),
+        ])
+        .drop("full_path")
+        # Sort beforehand so the min() and ordering are perfectly predictable
+        .sort(["dir_name", "iteration", time_col])
+        # Calculate normalized time starting at 0 per unique iteration
+        .with_columns(
+            (pl.col(time_col) - pl.col(time_col).min().over(["dir_name", "iteration"]))
+            .dt.total_seconds()
+            .alias("normalized_time")
+        )
+        .collect()
+    )
 
 
 @app.cell
 def _():
-    import altair as alt
-    import marimo as mo
-    import polars as pl
-    import glob
-
-    return alt, glob, mo, pl
-
-
-@app.cell
-def _(glob, pl):
-    def load_metric_data(metric: str, scenario: str, time_col: str = "timestamp") -> pl.DataFrame:
-        path_pattern = f"./parquet/*/{scenario}/{metric}_*.parquet"
-        dir_regex = f"parquet/([^/]+)/{scenario}"
-        iter_regex = r"_(\d+)\.parquet$"
-
-        all_files = glob.glob(path_pattern)
-        # Filter out empty parquet files that cause schema unification failures
-        empty_files = [f for f in all_files if pl.scan_parquet(f).select(pl.len()).collect()['len'][0] == 0]
-        files = [f for f in all_files if f not in empty_files]
-
-        if empty_files:
-            print(f"Skipping {len(empty_files)} empty file(s) for {metric}/{scenario}:")
-            for f in empty_files:
-                print(f"  - {f}")
-
-        if not files:
-            return pl.DataFrame()
-
-        return (
-            pl.scan_parquet(files, include_file_paths="full_path", missing_columns="insert", extra_columns="ignore")
-            .with_columns([
-                pl.col("full_path").str.extract(dir_regex).alias("dir_name"),
-                pl.col("full_path").str.extract(iter_regex).cast(pl.Int32).alias("iteration"),
-            ])
-            .drop("full_path")
-            # Sort beforehand so the min() and ordering are perfectly predictable
-            .sort(["dir_name", "iteration", time_col])
-            # Calculate normalized time starting at 0 per unique iteration
-            .with_columns(
-                (pl.col(time_col) - pl.col(time_col).min().over(["dir_name", "iteration"]))
-                .dt.total_seconds()
-                .alias("normalized_time")
-            )
-            .collect()
-        )
-
-    return (load_metric_data,)
-
-
-@app.cell
-def _(load_metric_data, pl):
     metrics = [
         "pod_joules",
+        "node_joules",
+        "node_avg_cpu_watts",
         "pods",
         "requests",
         "iterations",
@@ -70,7 +66,7 @@ def _(load_metric_data, pl):
         "cpu_usage",
     ]
 
-    scenarios = ["baseline", "coldstart", "scaling"]
+    scenarios = ["baseline", "coldstart", "scaling", "idle", "idle-scaled"]
 
     # Load all metric/scenario combinations into a dictionary
     df_all_metrics = {}
@@ -105,48 +101,45 @@ def _(load_metric_data, pl):
     return (df_all_metrics,)
 
 
-@app.cell
-def _(pl):
-    def build_scenario_table(df_all_metrics: dict, scenario: str) -> pl.DataFrame:
-                """Build a wide DataFrame for a scenario by joining all metric DataFrames on dir_name + iteration.
+@app.function
+def build_scenario_table(df_all_metrics: dict, scenario: str) -> pl.DataFrame:
+            """Build a wide DataFrame for a scenario by joining all metric DataFrames on dir_name + iteration.
 
-                Each metric may have multiple timestamped rows per (dir_name, iteration).
-                We aggregate to one row per (dir_name, iteration) using max for cumulative
-                counters (requests, iterations, vus, pods) and mean for sampled metrics
-                (p95, p99, rps, memory, cpu_usage, pod_joules).
-                """
-                cumulative_counters = {"requests", "iterations", "vus", "pods", "pod_joules"}
-                scenario_keys = [k for k in df_all_metrics if k[1] == scenario and len(df_all_metrics[k]) > 0]
-                if not scenario_keys:
-                    return pl.DataFrame()
+            Each metric may have multiple timestamped rows per (dir_name, iteration).
+            We aggregate to one row per (dir_name, iteration) using max for cumulative
+            counters (requests, iterations, vus, pods) and mean for sampled metrics
+            (p95, p99, rps, memory, cpu_usage, pod_joules).
+            """
+            cumulative_counters = {"requests", "iterations", "vus", "pods", "pod_joules"}
+            scenario_keys = [k for k in df_all_metrics if k[1] == scenario and len(df_all_metrics[k]) > 0]
+            if not scenario_keys:
+                return pl.DataFrame()
 
-                # Start with the first metric's dir_name and iteration
-                base = df_all_metrics[scenario_keys[0]].select(["dir_name", "iteration"]).unique()
+            # Start with the first metric's dir_name and iteration
+            base = df_all_metrics[scenario_keys[0]].select(["dir_name", "iteration"]).unique()
 
-                # Aggregate each metric to one row per (dir_name, iteration), then join
-                tables = []
-                for metric, _ in scenario_keys:
-                    df = df_all_metrics[(metric, scenario)]
-                    if "value" in df.columns:
-                        agg_fn = pl.col("value").max() if metric in cumulative_counters else pl.col("value").mean()
-                        tables.append(
-                            df.group_by(["dir_name", "iteration"])
-                              .agg(agg_fn.alias(metric))
-                              .unique(subset=["dir_name", "iteration"])
-                        )
-                    else:
-                        tables.append(
-                            df.select(["dir_name", "iteration"])
-                              .unique(subset=["dir_name", "iteration"])
-                              .with_columns(pl.lit(0.0).alias(metric))
-                        )
+            # Aggregate each metric to one row per (dir_name, iteration), then join
+            tables = []
+            for metric, _ in scenario_keys:
+                df = df_all_metrics[(metric, scenario)]
+                if "value" in df.columns:
+                    agg_fn = pl.col("value").max() if metric in cumulative_counters else pl.col("value").mean()
+                    tables.append(
+                        df.group_by(["dir_name", "iteration"])
+                          .agg(agg_fn.alias(metric))
+                          .unique(subset=["dir_name", "iteration"])
+                    )
+                else:
+                    tables.append(
+                        df.select(["dir_name", "iteration"])
+                          .unique(subset=["dir_name", "iteration"])
+                          .with_columns(pl.lit(0.0).alias(metric))
+                    )
 
-                result = base
-                for t in tables:
-                    result = result.join(t, on=["dir_name", "iteration"], how="left")
-                return result
-
-    return (build_scenario_table,)
+            result = base
+            for t in tables:
+                result = result.join(t, on=["dir_name", "iteration"], how="left")
+            return result
 
 
 @app.cell
@@ -156,7 +149,7 @@ def _(df_all_metrics):
 
 
 @app.cell
-def _(build_scenario_table, df_all_metrics, pl):
+def _(df_all_metrics):
     # --- Compute all metrics for baseline scenario ---
     df_baseline = build_scenario_table(df_all_metrics, "baseline")
 
@@ -185,7 +178,7 @@ def _(build_scenario_table, df_all_metrics, pl):
                 "latency_p95_ci_upper"
             ),
         ]).with_columns(
-            (pl.col("^latency_(p95|p99|stddev).*$").exclude("latency_cv") * 1000)
+            pl.col("^latency_(p95|p99|stddev).*$").exclude("latency_cv") * 1000
         )
 
         # Throughput metrics
@@ -197,7 +190,7 @@ def _(build_scenario_table, df_all_metrics, pl):
             pl.col("rps").min().alias("min_rps"),
             # requests is a global cumulative counter (shared across dir_names).
                 # total_requests = the final cumulative value (max across all iterations).
-                pl.col("requests").max().alias("total_requests"),
+                pl.col("iterations").max().alias("total_requests"),
         ])
 
         # Resource metrics (CPU/Memory)
@@ -261,7 +254,7 @@ def _(build_scenario_table, df_all_metrics, pl):
 
 
 @app.cell
-def _(build_scenario_table, df_all_metrics, pl):
+def _(df_all_metrics):
     # --- Compute all metrics for coldstart scenario ---
     df_coldstart = build_scenario_table(df_all_metrics, "coldstart")
 
@@ -269,7 +262,7 @@ def _(build_scenario_table, df_all_metrics, pl):
         # Latency & Responsiveness metrics - this is the time to first response
         df_latency_coldstart = df_coldstart.group_by("dir_name").agg([
             pl.col("p95").mean().alias("latency_p95_mean"),
-            pl.col("p99").mean().alias("latency_p99_mean"),
+    #       pl.col("p99").mean().alias("latency_p99_mean"),
             pl.col("p95").median().alias("latency_p95_median"),
             pl.col("p95").std().alias("latency_stddev"),
             (pl.col("p95").std() / pl.col("p95").mean()).alias("latency_cv"),
@@ -290,7 +283,7 @@ def _(build_scenario_table, df_all_metrics, pl):
                 "latency_p95_ci_upper"
             ),
         ]).with_columns(
-            (pl.col("^latency_(p95|p99|stddev).*$").exclude("latency_cv") * 1000)
+            pl.col("^latency_(p95|p99|stddev).*$").exclude("latency_cv") * 1000
         )
 
         # Energy metrics: use raw pod_joules from df_all_metrics, not df_coldstart
@@ -336,7 +329,7 @@ def _(build_scenario_table, df_all_metrics, pl):
 
 
 @app.cell
-def _(build_scenario_table, df_all_metrics, pl):
+def _(df_all_metrics):
     # --- Compute all metrics for scaling scenario ---
     df_scaling = build_scenario_table(df_all_metrics, "scaling")
 
@@ -365,7 +358,7 @@ def _(build_scenario_table, df_all_metrics, pl):
                 "latency_p95_ci_upper"
             ),
         ]).with_columns(
-            (pl.col("^latency_(p95|p99|stddev).*$").exclude("latency_cv") * 1000)
+            pl.col("^latency_(p95|p99|stddev).*$").exclude("latency_cv") * 1000
         )
 
         df_scaling_behavior = df_scaling.group_by("dir_name").agg([
@@ -377,7 +370,8 @@ def _(build_scenario_table, df_all_metrics, pl):
         # Throughput metrics
         # requests is a global cumulative counter (shared across dir_names).
         # total_requests = the final cumulative value (max across all iterations).
-        df_throughput_scaling = df_scaling.group_by("dir_name").agg([
+        df_throughput_scaling = df_all_metrics[("rps", "scaling")].group_by(
+        ["iteration", "dir_name"]).agg(pl.col("value").sum().alias("rps")).agg([
             pl.col("rps").mean().alias("mean_rps"),
             pl.col("rps").max().alias("max_rps"),
             pl.col("rps").min().alias("min_rps"),
@@ -449,10 +443,10 @@ def _(build_scenario_table, df_all_metrics, pl):
 
 
 @app.cell
-def _(alt):
-    targets = ["oci-axum", "wasm-js", "oci-spring", "oci-node", "wasm-rust"]
+def _():
+    targets = ["oci-axum", "wasm-js", "oci-spring", "oci-native", "oci-node", "wasm-rust"]
 
-    palette = ["#DE4C36", "#D97706", "#6DB33F", "#007ACC", "#654FF0"]
+    palette = ["#D34516", "#fc7c00", "#6DB33F", "#00758F", "#1b661b", "#654FF0"]
 
     # Create an Altair Scale object to reuse across charts
     targets_color_scale = alt.Scale(domain=targets, range=palette)
@@ -460,7 +454,7 @@ def _(alt):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     ## Baseline
     """)
@@ -468,7 +462,7 @@ def _(mo):
 
 
 @app.cell
-def _(alt, df_metrics_baseline, pl, targets_color_scale):
+def _(df_metrics_baseline, targets_color_scale):
     # Chart A: P95 Latency + 95% CI Error Bars
     # 1. Base Bars
     bars_baseline_latency = (
@@ -545,7 +539,7 @@ def _(alt, df_metrics_baseline, pl, targets_color_scale):
         alt.Chart(df_energy_unpivot)
         .mark_bar()
         .encode(
-            y=alt.Y("dir_name:N", title="Runtime", sort="x"),
+            y=alt.Y("dir_name:N", title="Target", sort="x"),
             x=alt.X("Joules:Q", title="Total Joules"),
             color=alt.Color(
                 "Component:N", scale=alt.Scale(
@@ -621,7 +615,7 @@ def _(alt, df_metrics_baseline, pl, targets_color_scale):
         alt.Chart(df_normalized_baseline)
         .mark_bar(opacity=0.85)
         .encode(
-            y=alt.Y("dir_name:N", title="Environment", sort="x"),
+            y=alt.Y("dir_name:N", title="Target", sort="x"),
             x=alt.X("CostPer1kRPS:Q", title="Cost per 1k RPS (Lower is better)"),
             color=alt.Color("dir_name:N", scale=targets_color_scale, legend=None),
             row=alt.Row(
@@ -648,7 +642,7 @@ def _(alt, df_metrics_baseline, pl, targets_color_scale):
             y=alt.Y(
                 "requests_per_joule:Q", title="Efficiency (Requests / Joule)"
             ),
-            color="dir_name:N",
+            color=alt.Color("dir_name:N", scale=targets_color_scale),
             tooltip=["dir_name", "mean_rps", "requests_per_joule"],
         )
     )
@@ -666,7 +660,6 @@ def _(alt, df_metrics_baseline, pl, targets_color_scale):
         height=260,
     )
     return (
-        bars_baseline_latency,
         chart_energy_baseline,
         chart_latency_baseline,
         chart_normalized_cost_baseline,
@@ -677,6 +670,13 @@ def _(alt, df_metrics_baseline, pl, targets_color_scale):
 
 
 @app.cell
+def _(chart_coldstart_tradeoff, chart_latency_baseline, chart_rps_baseline):
+    widget_baseline1 = (chart_latency_baseline | chart_rps_baseline)
+    chart_coldstart_tradeoff
+    return
+
+
+@app.cell
 def _(
     chart_energy_baseline,
     chart_latency_baseline,
@@ -684,7 +684,6 @@ def _(
     chart_resource_footprint_baseline,
     chart_rps_baseline,
     chart_tradeoff_baseline,
-    mo,
 ):
     # Compose into a 2x2 grid in Marimo with native interactive state
     dashboard_baseline= (
@@ -695,12 +694,6 @@ def _(
 
     chart_widget_baseline = mo.ui.altair_chart(dashboard_baseline)
     chart_widget_baseline
-    return
-
-
-@app.cell
-def _(bars_baseline_latency):
-    bars_baseline_latency
     return
 
 
@@ -717,7 +710,7 @@ def _(chart_energy_baseline):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     ## Coldstart
     """)
@@ -725,7 +718,7 @@ def _(mo):
 
 
 @app.cell
-def _(alt, df_metrics_coldstart, targets_color_scale):
+def _(df_metrics_coldstart, targets_color_scale):
     # -----------------------------------------------------------------------------
     # Chart 1: P95 Latency with Confidence Intervals
     # -----------------------------------------------------------------------------
@@ -780,7 +773,7 @@ def _(alt, df_metrics_coldstart, targets_color_scale):
         alt.Chart(df_energy_coldstart_unpivot)
         .mark_bar()
         .encode(
-            y=alt.Y("dir_name:N", title="Runtime", sort="x"),
+            y=alt.Y("dir_name:N", title="Target", sort="x"),
             x=alt.X("Joules:Q", title="Total Joules"),
             color=alt.Color(
                 "Component:N", scale=alt.Scale(
@@ -808,7 +801,7 @@ def _(alt, df_metrics_coldstart, targets_color_scale):
         alt.Chart(df_metrics_coldstart)
         .mark_rule(size=3, color="#555")
         .encode(
-            y=alt.Y("dir_name:N", title="Runtime", sort="x"),
+            y=alt.Y("dir_name:N", title="Target", sort="x"),
             x=alt.X("latency_p95_min:Q", title="P95 Latency Range (Min to Max ms)"),
             x2=alt.X2("latency_p95_max:Q"),
         )
@@ -867,11 +860,17 @@ def _(alt, df_metrics_coldstart, targets_color_scale):
 
     # Render dashboard
     coldstart_dashboard
+    return chart_coldstart_energy, chart_coldstart_tradeoff
+
+
+@app.cell
+def _(chart_coldstart_energy):
+    chart_coldstart_energy
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     ## Scaling
     """)
@@ -885,10 +884,28 @@ def _(df_scaling):
 
 
 @app.cell
-def _(alt, df_metrics_scaling, pl, targets_color_scale):
+def _(df_all_metrics):
+    df_rps_sum_scaling = df_all_metrics[("rps", "scaling")].group_by(
+        ["iteration", "dir_name"]).agg(pl.col("value").sum().alias("rps"))
+    df_rps_sum_scaling
+    return (df_rps_sum_scaling,)
+
+
+@app.cell
+def _(df_rps_sum_scaling):
+    df_rps_sum_scaling_avg = df_rps_sum_scaling.group_by("dir_name").agg([
+            pl.col("rps").mean().alias("mean_rps"),
+            pl.col("rps").max().alias("max_rps"),
+            pl.col("rps").min().alias("min_rps"),
+    ])
+    return (df_rps_sum_scaling_avg,)
+
+
+@app.cell
+def _(df_metrics_scaling, df_rps_sum_scaling_avg, targets_color_scale):
     # Chart B: Throughput (RPS Mean + Min/Max Range)
     rps_bars_scaling = (
-        alt.Chart(df_metrics_scaling)
+        alt.Chart(df_rps_sum_scaling_avg)
         .mark_bar(color="#4c78a8")
         .encode(
             y=alt.Y("dir_name:N", title="Target", sort="-x"),
@@ -898,7 +915,7 @@ def _(alt, df_metrics_scaling, pl, targets_color_scale):
     )
 
     rps_range_scaling = (
-        alt.Chart(df_metrics_scaling)
+        alt.Chart(df_rps_sum_scaling_avg)
         .mark_rule(color="#111111", strokeWidth=2)
         .encode(x="dir_name:N", y="min_rps:Q", y2="max_rps:Q")
     )
@@ -933,7 +950,7 @@ def _(alt, df_metrics_scaling, pl, targets_color_scale):
         alt.Chart(df_normalized_scaling)
         .mark_bar(opacity=0.85)
         .encode(
-            y=alt.Y("dir_name:N", title="Environment", sort="x"),
+            y=alt.Y("dir_name:N", title="Target", sort="x"),
             x=alt.X("CostPer1kRPS:Q", title="Cost per 1k RPS (Lower is better)"),
             color=alt.Color("dir_name:N", scale=targets_color_scale, legend=None),
             row=alt.Row(
@@ -1021,7 +1038,7 @@ def _(alt, df_metrics_scaling, pl, targets_color_scale):
     )
 
     # 3. Outer labels (Target names placed slightly above the bubbles)
-    runtime_text = bubbles_scaling.mark_text(
+    target_text = bubbles_scaling.mark_text(
         align="center",
         baseline="bottom",
         dy=-25,  # Offsets text upwards above the circle edge
@@ -1035,7 +1052,7 @@ def _(alt, df_metrics_scaling, pl, targets_color_scale):
 
     # Layer together
     chart_footprint_scaling = (
-        (bubbles_scaling + pod_count_text + runtime_text)
+        (bubbles_scaling + pod_count_text + target_text)
         .properties(
             title={
                 "text": "Infrastructure Footprint Matrix",
@@ -1054,6 +1071,12 @@ def _(alt, df_metrics_scaling, pl, targets_color_scale):
 
 
 @app.cell
+def _(chart_rps_scaling):
+    chart_rps_scaling
+    return
+
+
+@app.cell
 def _(
     chart_footprint_scaling,
     chart_normalized_cost_scaling,
@@ -1066,7 +1089,13 @@ def _(
 
 
 @app.cell
-def _(df_all_metrics, pl):
+def _(chart_footprint_scaling):
+    chart_footprint_scaling
+    return
+
+
+@app.cell
+def _(df_all_metrics):
     # Define the k6 benchmark phase boundaries in seconds
     # 0-240s   : Scale-Out Trigger (40 -> 80 VUs)
     # 240-600s : Peak Steady State (100 VUs)
@@ -1125,12 +1154,12 @@ def _(df_all_metrics, pl):
         .sort(["dir_name", "normalized_time"])
     )
 
-    df_joined_avg
+    df_joined
     return df_joined_avg, df_requests_scaling
 
 
 @app.cell
-def _(alt, df_joined_avg):
+def _(df_joined_avg):
     # 1. Primary Line: VUs over Time
     vu_line = (
         alt.Chart(df_joined_avg)
@@ -1180,7 +1209,7 @@ def _(alt, df_joined_avg):
 
     # 4. Facet with title passed cleanly at top level
     scaling_responsiveness_chart = layered.facet(
-        facet=alt.Facet("dir_name:N", title="Runtime Environment"),
+        facet=alt.Facet("dir_name:N", title="Target Environment"),
         columns=2,
         title=alt.TitleParams(
             text="KEDA Autoscaling Responsiveness: VUs vs Active Pods",
@@ -1189,18 +1218,18 @@ def _(alt, df_joined_avg):
     )
 
     scaling_responsiveness_chart
-    return rps_line, vu_line
+    return (vu_line,)
 
 
 @app.cell
-def _(alt, rps_line, vu_line):
-    chart_p95_scaling = alt.layer(vu_line, rps_line).resolve_scale(y="independent")
+def _(vu_line):
+    chart_p95_scaling = alt.layer(vu_line).resolve_scale(y="independent")
     chart_p95_scaling
     return
 
 
 @app.cell
-def _(df_joined_avg, pl):
+def _(df_joined_avg):
     df_penalty = (
         df_joined_avg
         # 1. Find the baseline P95 latency for each target under minimal load (VUs > 0)
@@ -1225,7 +1254,7 @@ def _(df_joined_avg, pl):
 
 
 @app.cell
-def _(alt, df_penalty):
+def _(df_penalty, targets_color_scale):
     chart_penalty_vs_vu = (
         alt.Chart(df_penalty)
         .mark_line(strokeWidth=2.5, interpolate="monotone")
@@ -1240,9 +1269,9 @@ def _(alt, df_penalty):
                 title="Added Latency per VU (ms/VU)",
                 scale=alt.Scale(zero=True)
             ),
-            color=alt.Color("dir_name:N", title="Runtime"),
+            color=alt.Color("dir_name:N", scale=targets_color_scale, title="Target"),
             tooltip=[
-                alt.Tooltip("dir_name:N", title="Runtime"),
+                alt.Tooltip("dir_name:N", title="Target"),
                 alt.Tooltip("vus:Q", title="VUs"),
                 alt.Tooltip("p95:Q", format=".2f", title="P95 Latency (ms)"),
                 alt.Tooltip("penalty_ms_per_vu:Q", format=".3f", title="Penalty (ms/VU)"),
@@ -1269,7 +1298,7 @@ def _(df_requests_scaling):
 
 
 @app.cell
-def _(alt, df_requests_scaling, pl):
+def _(df_requests_scaling):
     category_map = {
         "/players/:id": "simple",
         "/teams/:id": "simple",
