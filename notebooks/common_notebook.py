@@ -160,18 +160,18 @@ def build_scenario_table(df_scenario_metrics: dict) -> pl.DataFrame:
 def color_scale() -> alt.Scale:
     targets = [
         "oci-axum",
-        "wasm-js",
         "oci-spring",
         "oci-native",
         "oci-node",
+        "wasm-js",
         "wasm-rust",
     ]
     palette = [
         "#D34516",
-        "#FC7C00",
         "#6DB33F",
         "#00758F",
         "#1B661B",
+        "#FC7C00",
         "#654FF0",
     ]
 
