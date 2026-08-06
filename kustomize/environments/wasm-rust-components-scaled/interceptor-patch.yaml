@@ -1,0 +1,11 @@
+apiVersion: http.keda.sh/v1beta1
+kind: InterceptorRoute
+metadata:
+  name: football-app
+spec:
+  target:
+    service: football-app
+    port: 80
+  scalingMetric:
+    concurrency:
+      targetValue: 15
