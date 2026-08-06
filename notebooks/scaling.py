@@ -8,7 +8,30 @@ with app.setup:
     import marimo as mo
     import polars as pl
     from pathlib import Path
-    from common_notebook import build_scenario_table, load_scenario_metrics, color_scale
+    from common_notebook import (
+        build_scenario_table,
+        color_scale,
+        counter_increments,
+        export_all,
+        export_table,
+        load_scenario_metrics,
+        metric_frame,
+        split_variants,
+        variant_color_scale,
+        pareto_frontier,
+        pod_joules_increments,
+        save_chart,
+        series_key,
+        target_color,
+        target_rank,
+        thesis_chart,
+        total_gauge,
+        FIGURE_DIR,
+        PER_ROUTE_METRICS,
+        TABLE_DIR,
+        TARGET_ORDER,
+        VARIANT_OF,
+    )
     alt.data_transformers.enable("vegafusion")
 
 
@@ -44,15 +67,35 @@ def md_intro():
 @app.cell
 def load_data():
     # Label columns kept from the raw Prometheus/k6 parquets:
-    #   url                 - k6 route label (request mix breakdown)
-    #   pod_name / pod      - per-pod series: kepler energy counters (pod_name) and
-    #                         cAdvisor cpu/memory (pod). Required — these counters are
-    #                         PER POD, so they must be differenced/summed per pod.
+    #   url                        - k6 route label (request mix breakdown)
+    #   name / scenario / stage    - the remaining k6 label dimensions. k6 restarts
+    #                                http_reqs_total at every stage boundary, so a
+    #                                counter series is only identified once all of
+    #                                these are present; differencing on a partial key
+    #                                interleaves several counters and overcounts ~100x.
+    #   pod_name / pod             - per-pod series: kepler energy counters (pod_name)
+    #                                and cAdvisor cpu/memory (pod). These counters are
+    #                                PER POD and must be differenced/summed per pod.
     #   status / expected_response - k6 request outcome (200 vs timeout)
-    select_scaling_columns = ["url", "pod_name", "pod", "status", "expected_response"]
-    df_scaling = load_scenario_metrics("scaling", select_columns=select_scaling_columns)
-    df_scaling
-    return (df_scaling,)
+    select_scaling_columns = [
+        "url",
+        "name",
+        "scenario",
+        "stage",
+        "pod_name",
+        "pod",
+        "status",
+        "expected_response",
+    ]
+    df_scaling_all = load_scenario_metrics("scaling", select_columns=select_scaling_columns)
+
+    # The cross-target comparison covers TARGET_ORDER only. Deployment variants
+    # (e.g. wasm-rust-components) travel separately so they cannot leak into the
+    # six-way figures, where they would appear with fewer iterations and, for the
+    # componentized build, no energy data at all.
+    df_scaling, df_variants = split_variants(df_scaling_all)
+    df_scaling_all
+    return df_scaling, df_variants
 
 
 @app.cell
@@ -82,7 +125,6 @@ def processing_helpers():
     }
 
     # Single source of truth for target ordering: matches common_notebook.color_scale()
-    TARGET_ORDER = list(color_scale().domain)
 
     # Axis titles / units per metric, used by charts and exported tables.
     METRIC_LABELS = {
@@ -101,14 +143,6 @@ def processing_helpers():
     # Metrics stored as monotonically increasing counters: aggregate them as
     # deltas inside a window rather than as instantaneous means.
     CUMULATIVE_METRICS = {"requests", "iterations", "pod_joules"}
-
-
-    def target_rank(column: str = "target") -> pl.Expr:
-        """Sort key that keeps targets in the canonical color_scale() order.
-        Preferred over pl.Enum: vegafusion cannot serialize Enum/categorical columns."""
-        return pl.col(column).replace_strict(
-            {t: i for i, t in enumerate(TARGET_ORDER)}, default=len(TARGET_ORDER)
-        )
 
 
     def metric_title(metric: str) -> str:
@@ -159,19 +193,6 @@ def processing_helpers():
         return (t >= lo) & upper
 
 
-    def with_counter_deltas(
-        df: pl.DataFrame, value_col: str = "value", alias: str = "delta"
-    ) -> pl.DataFrame:
-        """
-        Per-(target, iteration) first difference of a cumulative counter, clipped at
-        zero so counter resets (pod restarts, RAPL wraparound) never subtract.
-        Diffs are computed on the full series BEFORE any window filtering.
-        """
-        return df.sort(["target", "iteration", "normalized_time"]).with_columns(
-            pl.col(value_col).diff().over(["target", "iteration"]).clip(lower_bound=0.0).alias(alias)
-        )
-
-
     # -------------------------------------------------------------------------
     # 3. Windowed aggregations
     # -------------------------------------------------------------------------
@@ -193,7 +214,7 @@ def processing_helpers():
             per_iter = "sum" if metric in CUMULATIVE_METRICS else "mean"
 
         if per_iter == "sum":
-            dfw = window_slice(with_counter_deltas(df))
+            dfw = window_slice(counter_increments(df, ["target", "iteration"], alias="delta"))
             sample = pl.col("delta").sum()
         elif per_iter == "max":
             dfw = window_slice(df)
@@ -238,7 +259,7 @@ def processing_helpers():
         """
         metrics = metrics or ["rps", "pods", "cpu_usage", "memory", "p95", "p99", "checks_rate"]
         parts = [
-            aggregate_metric_windows(df_scaling[m], metric=m, per_iter=per_iter)
+            aggregate_metric_windows(metric_frame(df_scaling, m), metric=m, per_iter=per_iter)
             for m in metrics
             if m in df_scaling
         ]
@@ -278,35 +299,6 @@ def processing_helpers():
     # (that is what made wasm-js, which runs the most replicas, look ~1000x cheaper
     # than everything else).
     POD_ID_COLUMN = "pod_name"
-
-
-    def pod_joules_increments(df_pj: pl.DataFrame) -> pl.DataFrame:
-        """
-        Per-timestamp incremental joules by RAPL zone, summed over all pods of a
-        target: columns package, dram, total = package + dram.
-        """
-        keys = ["target", "iteration", "zone"]
-        if POD_ID_COLUMN in df_pj.columns:
-            keys.append(POD_ID_COLUMN)
-
-        increments = df_pj.sort(keys + ["normalized_time"]).with_columns(
-            pl.col("value")
-            .diff()
-            .over(keys)
-            .fill_null(0.0)          # a pod's first sample has no predecessor
-            .clip(lower_bound=0.0)   # counter resets on pod restart
-            .alias("joules")
-        )
-
-        return (
-            increments.group_by(["target", "iteration", "normalized_time"])
-            .agg([
-                pl.col("joules").filter(pl.col("zone") == "package").sum().alias("package"),
-                pl.col("joules").filter(pl.col("zone") == "dram").sum().alias("dram"),
-            ])
-            .with_columns((pl.col("package") + pl.col("dram")).alias("total"))
-            .sort(["target", "iteration", "normalized_time"])
-        )
 
 
     def process_pod_joules_windows(
@@ -405,17 +397,16 @@ def processing_helpers():
     def request_increments(df_requests: pl.DataFrame) -> pl.DataFrame:
         """
         Per-timestamp request increments from the k6_http_reqs_total counter.
-        The counter is split across label series (url, status, expected_response),
-        so each series is differenced separately and then summed.
+
+        k6 labels this counter with url, name, scenario AND stage, and restarts it at
+        every stage boundary, so the series key must include all of them (series_key
+        derives it). Each series is differenced on its own; the increments are summed.
           requests        - all requests
           requests_ok     - expected_response == "true" (HTTP 200)
           requests_failed - everything else (timeouts, 5xx)
         """
-        label_cols = [c for c in ("url", "status", "expected_response") if c in df_requests.columns]
-        keys = ["target", "iteration", *label_cols]
-
-        increments = df_requests.sort(keys + ["normalized_time"]).with_columns(
-            pl.col("value").diff().over(keys).fill_null(0.0).clip(lower_bound=0.0).alias("n")
+        increments = counter_increments(
+            df_requests, series_key(df_requests), alias="n"
         )
 
         ok_expr = (
@@ -520,7 +511,14 @@ def processing_helpers():
             )
 
         frame = (
-            energy.join(_per_iter("rps", pl.col("value").mean(), "rps"), on=["target", "iteration"], how="left")
+            energy.join(
+                metric_frame(df_scaling, "rps")
+                .filter(mask)
+                .group_by(["target", "iteration"])
+                .agg(pl.col("value").mean().alias("rps")),
+                on=["target", "iteration"],
+                how="left",
+            )
             .join(_per_iter("p95", pl.col("value").mean(), "p95_ms"), on=["target", "iteration"], how="left")
             .join(_per_iter("pods", pl.col("value").mean(), "pods"), on=["target", "iteration"], how="left")
             .join(
@@ -568,21 +566,260 @@ def processing_helpers():
         return frame, summary
 
 
-    def pareto_frontier(
-        df: pl.DataFrame, x: str, y: str, maximize_x: bool = True, minimize_y: bool = True
+    # -------------------------------------------------------------------------
+    # Request mix: what the k6 scenario offers to each target
+    # -------------------------------------------------------------------------
+    # The k6 script picks a category by weight, then picks uniformly among the
+    # routes inside that category, so the designed share of a single route is
+    # category_weight / routes_in_category.
+    REQUEST_CATEGORIES = {
+        "/players/:id": "simple",
+        "/teams/:id": "simple",
+        "/match/:id": "simple",
+        "/players/record/:id": "detailed",
+        "/teams/record/:id": "detailed",
+        "/match/team/:id": "lookup",
+        "/match/result-table": "aggregate",
+    }
+
+    # Weights from the k6 scenario (percent of all requests).
+    REQUEST_CATEGORY_WEIGHTS = {
+        "simple": 10.0,
+        "detailed": 30.0,
+        "lookup": 30.0,
+        "aggregate": 30.0,
+    }
+
+    # Ordered light -> dark by query cost. The ramp is built along the warm axis the
+    # target palette already uses (#FC7C00 -> #D34516) so these charts sit in the
+    # same visual family as the rest of the figures; it stays a single-hue ramp
+    # because the categories are ordinal, which keeps it readable next to the
+    # categorical target colors without competing with them.
+    CATEGORY_ORDER = ["simple", "detailed", "lookup", "aggregate"]
+    CATEGORY_PALETTE = ["#FBDCB4", "#F5A855", "#E0701C", "#9C3111"]
+
+    # Label ink per slice: the two light steps need dark text, the two dark ones white.
+    CATEGORY_LABEL_COLORS = ["#5A2A0C", "#5A2A0C", "#FFFFFF", "#FFFFFF"]
+
+
+    def category_scale() -> alt.Scale:
+        """Altair color scale for request categories (ordinal, light -> dark by cost)."""
+        return alt.Scale(domain=CATEGORY_ORDER, range=CATEGORY_PALETTE)
+
+
+    def category_label_scale() -> alt.Scale:
+        """Text color that stays legible on top of each category's slice."""
+        return alt.Scale(domain=CATEGORY_ORDER, range=CATEGORY_LABEL_COLORS)
+
+
+    def designed_route_share() -> dict:
+        """Designed share per route: category weight split evenly over its routes."""
+        routes_per_category = {}
+        for category in REQUEST_CATEGORIES.values():
+            routes_per_category[category] = routes_per_category.get(category, 0) + 1
+        return {
+            route: REQUEST_CATEGORY_WEIGHTS[category] / routes_per_category[category]
+            for route, category in REQUEST_CATEGORIES.items()
+        }
+
+
+    def process_request_mix(
+        df_requests: pl.DataFrame, by_target: bool = False
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
+        """
+        Observed request mix against the mix the k6 scenario was configured to offer.
+
+        Counts come from the http_reqs counter (differenced per series), NOT from row
+        counts: a scrape row is one sample of one label series, so counting rows
+        measures how many routes a category owns rather than how much traffic it got.
+
+        Returns (per_category, per_route), each with observed and designed percent.
+        """
+        route_col = "name" if "name" in df_requests.columns else "url"
+        group_cols = (["target"] if by_target else []) + [route_col]
+
+        per_route = (
+            counter_increments(df_requests, series_key(df_requests), alias="n")
+            .group_by(group_cols)
+            .agg(pl.col("n").sum().alias("requests"))
+            .rename({route_col: "route"})
+            .with_columns(
+                pl.col("route").replace_strict(REQUEST_CATEGORIES, default="other").alias("category")
+            )
+        )
+
+        share_over = ["target"] if by_target else []
+        designed = designed_route_share()
+
+        per_route = (
+            per_route.with_columns(
+                (pl.col("requests") / pl.col("requests").sum().over(share_over) * 100).alias("observed_pct")
+                if share_over
+                else (pl.col("requests") / pl.col("requests").sum() * 100).alias("observed_pct")
+            )
+            .with_columns(
+                pl.col("route").replace_strict(designed, default=0.0).alias("designed_pct")
+            )
+            .with_columns((pl.col("observed_pct") - pl.col("designed_pct")).alias("delta_pct"))
+            .sort("observed_pct", descending=True)
+        )
+
+        per_category = (
+            per_route.group_by((["target"] if by_target else []) + ["category"])
+            .agg([
+                pl.col("requests").sum(),
+                pl.col("observed_pct").sum(),
+                pl.col("designed_pct").sum(),
+            ])
+            .with_columns((pl.col("observed_pct") - pl.col("designed_pct")).alias("delta_pct"))
+            .with_columns(
+                pl.col("category")
+                .replace_strict({c: i for i, c in enumerate(CATEGORY_ORDER)}, default=len(CATEGORY_ORDER))
+                .alias("_rank")
+            )
+            .sort("_rank")
+            .drop("_rank")
+        )
+
+        return per_category, per_route
+
+
+    # -------------------------------------------------------------------------
+    # Per-route latency (p95_by_route)
+    # -------------------------------------------------------------------------
+    def process_route_latency(
+        df_p95_route: pl.DataFrame, window: str = "steady"
     ) -> pl.DataFrame:
         """
-        Non-dominated targets for a two-objective trade-off. A target is on the
-        frontier when no other target beats it on one axis without losing on the other.
+        Per-(target, route) p95 inside one window: each iteration is reduced to its
+        time-average, then summarized across iterations.
         """
-        rows = df.sort(x, descending=maximize_x).to_dicts()
-        frontier, best = [], None
-        for row in rows:
-            value = row[y]
-            if best is None or (value < best if minimize_y else value > best):
-                frontier.append(row)
-                best = value
-        return pl.DataFrame(frontier).sort(x)
+        per_iter = (
+            df_p95_route.filter(window_mask(window))
+            .group_by(["target", "url", "iteration"])
+            .agg(pl.col("value").mean().alias("iter_p95"))
+        )
+        return (
+            per_iter.group_by(["target", "url"])
+            .agg([
+                pl.col("iter_p95").mean().alias("p95_ms"),
+                pl.col("iter_p95").std().alias("p95_sd"),
+                pl.col("iter_p95").min().alias("p95_min"),
+                pl.col("iter_p95").max().alias("p95_max"),
+                pl.len().alias("n_iterations"),
+            ])
+            .rename({"url": "route"})
+            .with_columns(
+                pl.col("route").replace_strict(REQUEST_CATEGORIES, default="other").alias("category")
+            )
+            .sort(["target", "p95_ms"], descending=[False, True])
+        )
+
+
+    def process_route_service_time(
+        df_scaling: dict, window: str = "steady"
+    ) -> pl.DataFrame:
+        """
+        Where each target's service time actually goes.
+
+        A route's share of total service time is (its request rate x its p95), which
+        weights latency by how often the route is called - a slow route that is 3 %
+        of traffic matters far less than a slow route that is 30 % of it.
+        """
+        latency = process_route_latency(df_scaling["p95_by_route"], window)
+
+        throughput = (
+            df_scaling["rps"]
+            .filter(window_mask(window))
+            .unique(subset=["target", "iteration", "normalized_time", "url"])
+            .group_by(["target", "url"])
+            .agg(pl.col("value").mean().alias("rps"))
+            .rename({"url": "route"})
+        )
+
+        return (
+            latency.join(throughput, on=["target", "route"], how="left")
+            .with_columns((pl.col("p95_ms") * pl.col("rps")).alias("service_time"))
+            .with_columns(
+                (pl.col("service_time") / pl.col("service_time").sum().over("target") * 100)
+                .alias("service_time_pct")
+            )
+            .with_columns(
+                (pl.col("rps") / pl.col("rps").sum().over("target") * 100).alias("traffic_pct")
+            )
+            .sort(["target", "service_time_pct"], descending=[False, True])
+        )
+
+
+    def compare_variant(
+        df_variants: dict, variant: str, window: str = "steady"
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
+        """
+        Paired A/B of a deployment variant against its baseline.
+
+        Returns (per_route, summary). `significant` marks deltas that clear both
+        combined standard deviations - with a 3-iteration probe against a 10-iteration
+        baseline, anything inside that band is noise, not a result.
+        """
+        baseline = VARIANT_OF[variant]
+
+        latency = process_route_latency(df_variants["p95_by_route"], window)
+        base_l = latency.filter(pl.col("target") == baseline).select(
+            ["route", "category", "p95_ms", "p95_sd", "n_iterations"]
+        ).rename({"p95_ms": "baseline_ms", "p95_sd": "baseline_sd", "n_iterations": "baseline_n"})
+        var_l = latency.filter(pl.col("target") == variant).select(
+            ["route", "p95_ms", "p95_sd", "n_iterations"]
+        ).rename({"p95_ms": "variant_ms", "p95_sd": "variant_sd", "n_iterations": "variant_n"})
+
+        per_route = (
+            base_l.join(var_l, on="route", how="inner")
+            .with_columns([
+                (pl.col("variant_ms") - pl.col("baseline_ms")).alias("delta_ms"),
+                ((pl.col("variant_ms") - pl.col("baseline_ms")) / pl.col("baseline_ms") * 100).alias("delta_pct"),
+                (pl.col("baseline_sd") + pl.col("variant_sd")).alias("noise_band"),
+            ])
+            .with_columns(
+                (pl.col("delta_ms").abs() > pl.col("noise_band")).alias("significant")
+            )
+            .sort("baseline_ms", descending=True)
+        )
+
+        def _metric(metric: str, expr: pl.Expr, alias: str) -> pl.DataFrame:
+            if metric not in df_variants:
+                return pl.DataFrame({"target": [], alias: []}, schema={"target": pl.String, alias: pl.Float64})
+            frame = metric_frame(df_variants, metric).filter(window_mask(window))
+            return (
+                frame.group_by(["target", "iteration"])
+                .agg(expr.alias("v"))
+                .group_by("target")
+                .agg(pl.col("v").mean().alias(alias))
+            )
+
+        summary = (
+            _metric("p95", pl.col("value").mean(), "p95_ms")
+            .join(_metric("rps", pl.col("value").mean(), "rps"), on="target", how="left")
+            .join(_metric("pods", pl.col("value").mean(), "pods"), on="target", how="left")
+            .join(_metric("checks_rate", pl.col("value").min(), "min_checks_rate"), on="target", how="left")
+            .join(
+                per_pod_and_cluster(df_variants["memory"], window)
+                .group_by("target")
+                .agg([
+                    pl.col("per_pod").mean().alias("memory_per_pod_mb"),
+                    pl.col("cluster").mean().alias("memory_cluster_mb"),
+                ]),
+                on="target",
+                how="left",
+            )
+            .join(
+                per_pod_and_cluster(df_variants["cpu_usage"], window)
+                .group_by("target")
+                .agg(pl.col("cluster").mean().alias("cpu_cores_cluster")),
+                on="target",
+                how="left",
+            )
+            .sort("target")
+        )
+        return per_route, summary
 
 
     def process_scale_up_responsiveness(
@@ -769,7 +1006,12 @@ def processing_helpers():
 
         p95_steady = _steady_agg("p95", pl.col("value").mean(), "p95_latency_ms")
         p99_steady = _steady_agg("p99", pl.col("value").mean(), "p99_latency_ms")
-        rps_steady = _steady_agg("rps", pl.col("value").mean(), "steady_rps")
+        rps_steady = (
+            metric_frame(df_scaling, "rps")
+            .filter(steady)
+            .group_by("target")
+            .agg(pl.col("value").mean().alias("steady_rps"))
+        )
         checks_steady = _steady_agg("checks_rate", pl.col("value").min(), "min_checks_rate")
         cpu_split = (
             per_pod_and_cluster(df_scaling["cpu_usage"], "steady")
@@ -833,52 +1075,45 @@ def processing_helpers():
 
 
     return (
-        TARGET_ORDER,
+        CATEGORY_LABEL_COLORS,
+        CATEGORY_ORDER,
         WINDOWS,
         WINDOW_LABELS,
         build_efficiency_frame,
         build_windowed_summary,
+        category_scale,
+        compare_variant,
         metric_title,
-        pareto_frontier,
         process_all_metrics_summary,
         process_cooldown_idle_drain,
         process_pod_joules,
         process_pod_joules_windows,
+        process_request_mix,
         process_request_outcomes,
+        process_route_latency,
+        process_route_service_time,
         process_scale_to_zero,
         process_scale_up_responsiveness,
-        target_rank,
         window_slice,
     )
 
 
 @app.cell
 def chart_helpers(
-    TARGET_ORDER,
+    CATEGORY_LABEL_COLORS,
+    CATEGORY_ORDER,
     WINDOWS,
     WINDOW_LABELS,
     build_efficiency_frame,
+    category_scale,
     metric_title,
-    pareto_frontier,
     process_pod_joules,
-    target_rank,
     window_slice,
 ):
     # Altair visualization helpers — all target encodings share color_scale()
     # -------------------------------------------------------------------------
     CHART_WIDTH = 650
     CHART_HEIGHT = 160
-
-
-    def target_color(legend: bool = True) -> alt.Color:
-        """Consistent target color/legend encoding across every chart."""
-        return alt.Color(
-            "target:N",
-            scale=color_scale(),
-            sort=TARGET_ORDER,
-            title="Target",
-            legend=alt.Legend(orient="right") if legend else None,
-        )
 
 
     def window_bands(
@@ -932,7 +1167,7 @@ def chart_helpers(
         """
         parts = []
         for m in metrics:
-            df = df_scaling[m]
+            df = metric_frame(df_scaling, m)
             if bin_seconds:
                 df = df.with_columns(
                     ((pl.col("normalized_time") / bin_seconds).floor() * bin_seconds).alias(
@@ -1185,7 +1420,7 @@ def chart_helpers(
         samples = []
         for m in metrics:
             per_iter = (
-                window_slice(df_scaling[m])
+                window_slice(metric_frame(df_scaling, m))
                 .filter(pl.col("window").is_in(windows))
                 .group_by(["target", "window", "iteration"])
                 .agg(pl.col("value").mean().alias("sample"))
@@ -1468,6 +1703,246 @@ def chart_helpers(
         )
 
 
+    def make_request_mix_donut(df_category_mix: pl.DataFrame) -> alt.Chart:
+        """Share of total requests per category, as a labeled donut."""
+        # Both layers must share one encoding basis. If the text layer omits the
+        # color encoding, Vega-Lite stacks it independently of the arcs and the
+        # percentages land on the wrong slices. So color/theta/order live on `base`,
+        # and only the text's ink is overridden: `fill` takes precedence over `color`
+        # for text marks, and scale=None keeps the value literal, so the arcs keep
+        # their scale and legend while the labels stay legible on every step.
+        df_plot = df_category_mix.with_columns([
+            pl.col("category")
+            .replace_strict(dict(zip(CATEGORY_ORDER, CATEGORY_LABEL_COLORS)), default="#000000")
+            .alias("label_color"),
+            pl.col("category")
+            .replace_strict({c: i for i, c in enumerate(CATEGORY_ORDER)}, default=len(CATEGORY_ORDER))
+            .alias("category_rank"),
+        ])
+
+        base = alt.Chart(df_plot).encode(
+            theta=alt.Theta("requests:Q", stack=True),
+            # Pin the slice order so arcs and labels agree regardless of row order.
+            order=alt.Order("category_rank:Q", sort="ascending"),
+            color=alt.Color(
+                "category:N",
+                scale=category_scale(),
+                sort=CATEGORY_ORDER,
+                title="Request category",
+            ),
+            tooltip=[
+                alt.Tooltip("category:N", title="Category"),
+                alt.Tooltip("requests:Q", format=",.0f", title="Requests"),
+                alt.Tooltip("observed_pct:Q", format=".2f", title="Observed %"),
+                alt.Tooltip("designed_pct:Q", format=".1f", title="Designed %"),
+            ],
+        )
+
+        arcs = base.mark_arc(innerRadius=60, outerRadius=125, stroke="white", strokeWidth=2)
+
+        labels = base.mark_text(radius=95, fontWeight="bold", fontSize=12).encode(
+            text=alt.Text("observed_pct:Q", format=".1f"),
+            fill=alt.Fill("label_color:N", scale=None),
+        )
+
+        return (arcs + labels).properties(
+            width=320,
+            height=320,
+            title={
+                "text": "Request mix by category",
+                "subtitle": "Share of all requests served across the 13-minute run",
+            },
+        )
+
+
+    def make_request_mix_validation(df_route_mix: pl.DataFrame) -> alt.Chart:
+        """
+        Observed share per route against the share the k6 weights prescribe.
+        Ticks mark the designed value; bars are what the run actually produced.
+        """
+        base = alt.Chart(df_route_mix).encode(
+            y=alt.Y("route:N", title=None, sort=alt.EncodingSortField("designed_pct", order="descending"))
+        )
+
+        bars = base.mark_bar().encode(
+            x=alt.X("observed_pct:Q", title="Share of all requests (%)"),
+            color=alt.Color(
+                "category:N", scale=category_scale(), sort=CATEGORY_ORDER, title="Request category"
+            ),
+            tooltip=[
+                alt.Tooltip("route:N", title="Route"),
+                alt.Tooltip("category:N", title="Category"),
+                alt.Tooltip("requests:Q", format=",.0f", title="Requests"),
+                alt.Tooltip("observed_pct:Q", format=".2f", title="Observed %"),
+                alt.Tooltip("designed_pct:Q", format=".2f", title="Designed %"),
+                alt.Tooltip("delta_pct:Q", format="+.2f", title="Delta (pp)"),
+            ],
+        )
+
+        designed = base.mark_tick(
+            color="#3A2410", thickness=2, size=18, opacity=0.9
+        ).encode(x=alt.X("designed_pct:Q", title="Share of all requests (%)"))
+
+        return (bars + designed).properties(
+            width=360,
+            height=210,
+            title={
+                "text": "Offered load vs. k6 weighting",
+                "subtitle": "Bars = observed share, tick = designed share (category weight / routes in category)",
+            },
+        )
+
+
+    def make_route_latency_heatmap(
+        df_route_latency: pl.DataFrame, targets: list | None = None
+    ) -> alt.Chart:
+        """
+        Route x target p95 heatmap. Color is log-scaled because per-route latency
+        spans four orders of magnitude (0.016 ms to 31 ms).
+        """
+        df_plot = df_route_latency
+        if targets:
+            df_plot = df_plot.filter(pl.col("target").is_in(targets))
+
+        return (
+            alt.Chart(df_plot)
+            .mark_rect(stroke="white", strokeWidth=1)
+            .encode(
+                x=alt.X("target:N", title=None, sort=TARGET_ORDER, axis=alt.Axis(labelAngle=-30)),
+                y=alt.Y("route:N", title=None, sort=alt.EncodingSortField("p95_ms", op="max", order="descending")),
+                color=alt.Color(
+                    "p95_ms:Q",
+                    title="P95 (ms)",
+                    scale=alt.Scale(type="log", scheme="orangered", nice=False),
+                ),
+                tooltip=[
+                    alt.Tooltip("target:N", title="Target"),
+                    alt.Tooltip("route:N", title="Route"),
+                    alt.Tooltip("category:N", title="Category"),
+                    alt.Tooltip("p95_ms:Q", format=".3f", title="P95 (ms)"),
+                    alt.Tooltip("p95_sd:Q", format=".3f", title="sd"),
+                ],
+            )
+            .properties(
+                width=330,
+                height=210,
+                title={
+                    "text": "Steady-state P95 per route",
+                    "subtitle": "Log color scale; mean of per-iteration means",
+                },
+            )
+        )
+
+
+    def make_route_latency_bars(df_route_latency: pl.DataFrame) -> alt.Chart:
+        """Per-route p95 per target on a shared log axis, faceted by route."""
+        return (
+            alt.Chart(df_route_latency)
+            .mark_bar()
+            .encode(
+                x=alt.X("p95_ms:Q", title="P95 (ms) - log scale", scale=alt.Scale(type="log", nice=False)),
+                y=alt.Y("target:N", title=None, sort=TARGET_ORDER),
+                color=target_color(),
+                row=alt.Row("route:N", title=None, header=alt.Header(labelAngle=0, labelAlign="left")),
+                tooltip=[
+                    alt.Tooltip("target:N", title="Target"),
+                    alt.Tooltip("route:N", title="Route"),
+                    alt.Tooltip("p95_ms:Q", format=".3f", title="P95 (ms)"),
+                ],
+            )
+            .properties(width=380, height=90, title="P95 by route and target")
+        )
+
+
+    def make_service_time_chart(df_service_time: pl.DataFrame) -> alt.Chart:
+        """
+        Share of each target's service time by route (rate x latency), stacked to
+        100 %. Shows which endpoint a target's latency budget is actually spent on.
+        """
+        return (
+            alt.Chart(df_service_time)
+            .mark_bar()
+            .encode(
+                x=alt.X("service_time_pct:Q", title="Share of total service time (%)", stack="normalize"),
+                y=alt.Y("target:N", title=None, sort=TARGET_ORDER),
+                color=alt.Color(
+                    "route:N",
+                    title="Route",
+                    scale=alt.Scale(scheme="tableau10"),
+                    sort=alt.EncodingSortField("service_time_pct", op="max", order="descending"),
+                ),
+                tooltip=[
+                    alt.Tooltip("target:N", title="Target"),
+                    alt.Tooltip("route:N", title="Route"),
+                    alt.Tooltip("traffic_pct:Q", format=".1f", title="Traffic share (%)"),
+                    alt.Tooltip("p95_ms:Q", format=".3f", title="P95 (ms)"),
+                    alt.Tooltip("service_time_pct:Q", format=".1f", title="Service-time share (%)"),
+                ],
+            )
+            .properties(
+                width=430,
+                height=200,
+                title={
+                    "text": "Where each target spends its service time",
+                    "subtitle": "Request rate x P95 per route, normalized per target",
+                },
+            )
+        )
+
+
+    def make_variant_route_chart(df_variant_routes: pl.DataFrame, variant: str) -> alt.Chart:
+        """
+        Paired baseline-vs-variant p95 per route as a dumbbell: the connector shows
+        the change, the dot color shows which build it belongs to. Log x-axis, since
+        the routes span three orders of magnitude.
+        """
+        baseline = VARIANT_OF[variant]
+        long = df_variant_routes.select([
+            "route",
+            pl.col("baseline_ms").alias(baseline),
+            pl.col("variant_ms").alias(variant),
+            "significant",
+        ]).unpivot(
+            index=["route", "significant"], variable_name="build", value_name="p95_ms"
+        )
+
+        # Explicit route order: the connector layer has no p95_ms column, so a sort
+        # field would resolve differently in each layer.
+        route_order = df_variant_routes.sort("baseline_ms", descending=True)["route"].to_list()
+        y = alt.Y("route:N", title=None, sort=route_order)
+        x = alt.X("p95_ms:Q", title="P95 (ms) - log scale", scale=alt.Scale(type="log", nice=False))
+
+        connector = (
+            alt.Chart(df_variant_routes)
+            .mark_rule(strokeWidth=2, opacity=0.45)
+            .encode(y=y, x=alt.X("baseline_ms:Q", title="P95 (ms) - log scale"), x2="variant_ms:Q")
+        )
+        points = (
+            alt.Chart(long)
+            .mark_point(size=110, filled=True, opacity=0.95)
+            .encode(
+                y=y,
+                x=x,
+                color=alt.Color("build:N", scale=variant_color_scale(variant), title="Build"),
+                tooltip=[
+                    alt.Tooltip("route:N", title="Route"),
+                    alt.Tooltip("build:N", title="Build"),
+                    alt.Tooltip("p95_ms:Q", format=".3f", title="P95 (ms)"),
+                    alt.Tooltip("significant:N", title="Outside noise band"),
+                ],
+            )
+        )
+
+        return (connector + points).properties(
+            width=400,
+            height=210,
+            title={
+                "text": f"{baseline} vs {variant}: steady-state P95 per route",
+                "subtitle": "Dot pairs joined per route; a shift left means the componentized build is faster",
+            },
+        )
+
+
     return (
         make_efficiency_iteration_scatter,
         make_efficiency_scatter,
@@ -1475,106 +1950,17 @@ def chart_helpers(
         make_energy_latency_scatter,
         make_peak_boxplots,
         make_rapl_energy_chart,
+        make_request_mix_donut,
+        make_request_mix_validation,
+        make_route_latency_bars,
+        make_route_latency_heatmap,
+        make_service_time_chart,
         make_timeseries_charts,
         make_timeseries_facet,
+        make_variant_route_chart,
         make_window_summary_chart,
         make_work_per_joule_scatter,
     )
-
-
-@app.cell
-def export_helpers():
-    # Export helpers — figures and tables for the Typst thesis
-    # -------------------------------------------------------------------------
-    # Charts go to FIGURE_DIR as SVG (vector, what Typst `image()` wants) and PNG;
-    # tables go to TABLE_DIR as CSV, readable from Typst via `#csv("...")`.
-    FIGURE_DIR = Path("figures")
-    TABLE_DIR = Path("tables")
-
-
-    def thesis_chart(chart, title: str | None = None):
-        """Apply print-friendly styling: white background, readable type, no grid clutter."""
-        styled = chart.configure_view(strokeWidth=0).configure_axis(
-            labelFontSize=11, titleFontSize=12, grid=True, gridOpacity=0.25
-        ).configure_legend(
-            labelFontSize=11, titleFontSize=12
-        ).configure_title(
-            fontSize=14, subtitleFontSize=11, anchor="start"
-        ).configure_header(
-            labelFontSize=11, titleFontSize=12
-        ).properties(background="white")
-        return styled.properties(title=title) if title else styled
-
-
-    def save_chart(
-        chart,
-        name: str,
-        formats: tuple = ("svg", "png"),
-        directory: Path = FIGURE_DIR,
-        scale_factor: float = 2.0,
-        style: bool = True,
-    ) -> list:
-        """
-        Render one Altair chart to disk for inclusion in the thesis.
-        Returns the list of written paths. Requires vl-convert (already installed).
-        """
-        directory.mkdir(parents=True, exist_ok=True)
-        to_save = thesis_chart(chart) if style else chart
-        written = []
-        for fmt in formats:
-            path = directory / f"{name}.{fmt}"
-            if fmt == "png":
-                to_save.save(path, scale_factor=scale_factor, engine="vl-convert")
-            else:
-                to_save.save(path, engine="vl-convert")
-            written.append(path)
-        return written
-
-
-    def export_table(
-        df: pl.DataFrame,
-        name: str,
-        directory: Path = TABLE_DIR,
-        float_precision: int = 3,
-        formats: tuple = ("csv", "parquet"),
-    ) -> list:
-        """
-        Write a summary table for the thesis. CSV is what Typst reads with
-        `#csv("tables/<name>.csv")`; parquet keeps full precision for re-analysis.
-        """
-        directory.mkdir(parents=True, exist_ok=True)
-        rounded = df.with_columns(pl.col(pl.Float32, pl.Float64).round(float_precision))
-        written = []
-        for fmt in formats:
-            path = directory / f"{name}.{fmt}"
-            if fmt == "csv":
-                rounded.write_csv(path)
-            else:
-                df.write_parquet(path)
-            written.append(path)
-        return written
-
-
-    def export_all(
-        charts: dict | None = None,
-        tables: dict | None = None,
-        formats: tuple = ("svg", "png"),
-    ) -> pl.DataFrame:
-        """
-        Bulk-export named charts and tables; returns a manifest of what was written
-        so the notebook shows exactly which files the thesis build will pick up.
-        """
-        rows = []
-        for name, chart in (charts or {}).items():
-            for path in save_chart(chart, name, formats=formats):
-                rows.append({"kind": "figure", "name": name, "path": str(path)})
-        for name, df in (tables or {}).items():
-            for path in export_table(df, name):
-                rows.append({"kind": "table", "name": name, "path": str(path)})
-        return pl.DataFrame(rows, schema={"kind": pl.String, "name": pl.String, "path": pl.String})
-
-
-    return (export_all,)
 
 
 @app.cell
@@ -1642,18 +2028,19 @@ def md_windowed():
 
     `mean`, `std`, `min`, `max` and `p95` per (metric, target, window), computed by
     reducing each of the 10 iterations to one sample inside a window and then
-    summarizing across iterations — so `std` is **run-to-run** variance, not
-    sample noise inside a run.
+    summarizing across iterations - so `std` is **run-to-run** variance, not sample
+    noise inside a run.
 
     **Throughput is stable once scaled.** Steady-state RPS has a run-to-run sd of
-    0.65-2.35 req/s on every target (1-3 % of the mean), so the throughput ranking
-    is not an artefact of a lucky iteration. The Scale-Up window is where the runs
-    disagree most (`oci-node` sd 3.56, `oci-native` 3.11) — that is HPA reaction
-    timing, not steady capacity.
+    4.7-16.3 req/s on the container targets (1-3 % of the mean), so the throughput
+    ranking is not an artefact of a lucky iteration. `wasm-js` is the exception at
+    9.5 on a mean of 15.7 - a 60 % coefficient of variation. The Scale-Up window is
+    where runs disagree most (`wasm-js` sd 19.8, `oci-spring` 18.2): that is HPA
+    reaction timing, not steady capacity.
 
     **Cooldown throughput stays high.** With KEDA scaling on concurrency, traffic is
-    still balanced across the replicas as VUs ramp down: 40.3 req/s for `oci-spring`
-    and 24.4 for `oci-axum` are still being served in the 660-780 s window.
+    still balanced across the replicas as VUs ramp down: 281.6 req/s for `oci-spring`
+    and 170.7 for `oci-axum` are still being served in the 660-780 s window.
     """)
     return
 
@@ -1739,34 +2126,35 @@ def _(df_scaling, process_scale_up_responsiveness):
 @app.cell
 def md_master():
     mo.md(r"""
-    ## Master summary — headline results
+    ## Master summary - headline results
 
     One row per target, all values from the Steady-State window (480-600 s) unless
-    the column name says otherwise.
+    the column name says otherwise. Throughput is the **sum over all seven routes**;
+    energy is normalized by the request counter differenced per label series.
 
     **Throughput splits the field into two groups.** The four container targets
-    deliver 43.6-75.3 req/s (`oci-spring` highest at 75.3, `oci-native` 59.8), while
-    the WebAssembly targets deliver far less: `wasm-rust` 21.0 req/s and `wasm-js`
-    6.9 req/s — a **10.9x gap** between best and worst.
+    deliver 304-526 req/s (`oci-spring` highest at 526.5, `oci-native` 417.3), while
+    the WebAssembly targets deliver far less: `wasm-rust` 145.7 req/s and `wasm-js`
+    15.7 req/s - a **33.5x gap** between best and worst.
 
     **Latency follows throughput.** Steady p95 runs 1.06-1.97 ms for the container
     targets and 3.50 ms for `wasm-rust`; `wasm-js` sits at **19.2 ms p95 / 32.6 ms
     p99**, an order of magnitude above everything else.
 
-    **`wasm-js` is the only target that drops requests** — a 1.14 % steady failure
-    rate (HTTP timeouts, `expected_response == false`). Every other target holds a
-    perfect check rate across all 10 iterations.
+    **`wasm-js` is the only target that drops requests** - a 1.50 % steady failure
+    rate (155 of 10 463 requests, HTTP timeouts). Every other target holds a perfect
+    check rate across all 10 iterations.
 
     **Energy per request is where the ranking inverts.** `oci-axum` is not the
-    throughput leader but is the most efficient at **10.3 J/10k requests**, followed
-    by `oci-node` (14.5) and `oci-spring` (16.4). `oci-native` costs 23.8, and the
-    Wasm targets are the most expensive per unit of work: `wasm-js` 35.5 and
-    `wasm-rust` **43.5 J/10k requests**, 4.2x the `oci-axum` figure.
+    throughput leader but is the most efficient at **949 J/10k requests**, followed
+    by `oci-node` (1 345) and `oci-spring` (1 407). `oci-native` costs 2 082, and the
+    Wasm targets are the most expensive per unit of work: `wasm-js` 4 320 and
+    `wasm-rust` **4 564 J/10k requests**, 4.8x the `oci-axum` figure.
 
     **Footprint spans two orders of magnitude.** Per replica: `oci-axum` 16.5 MB,
     `wasm-rust` 41.9 MB, `oci-node` 103.7 MB, `wasm-js` 189.0 MB, `oci-native`
     206.9 MB, `oci-spring` 690.7 MB. As a cluster total the spread widens to
-    82.7 MB (`oci-axum`) vs 3 079 MB (`oci-spring`) — a **37x** difference in RAM
+    82.7 MB (`oci-axum`) vs 3 079 MB (`oci-spring`) - a **37x** difference in RAM
     needed to serve the same scenario.
     """)
     return
@@ -1783,11 +2171,12 @@ def md_ts_rps():
     mo.md(r"""
     ### Throughput over time
 
-    Mean across the 10 iterations with a ±1 sd band; shaded regions mark the load
-    stages. The step at each VU increase is visible for the container targets and
-    flat for `wasm-js`, which is already saturated during the first ramp — it gains
-    only 11.1 → 13.7 → 7.0 req/s across Scale-Up, Ramp-Up and Steady State, i.e. it
-    *loses* throughput when the load doubles.
+    Mean across the 10 iterations with a +/-1 sd band, summed over all seven routes;
+    shaded regions mark the load stages. The step at each VU increase is visible for
+    the container targets but not for `wasm-js`, which is already saturated during
+    the first ramp: 70.3 -> 83.0 -> 15.7 req/s across Scale-Up, Ramp-Up and Steady
+    State, i.e. it *loses* four fifths of its throughput once the load reaches
+    100 VUs.
     """)
     return
 
@@ -1855,8 +2244,80 @@ def md_ts_p95():
     and `oci-native` (1.33 ms) at the bottom, `oci-node` (1.69 ms) and `oci-axum`
     (1.97 ms) in the middle, and `wasm-rust` distinctly above them at 3.50 ms.
     """)
-
     return
+
+
+@app.cell
+def md_route_latency():
+    mo.md(r"""
+    ## Per-route latency: where the time actually goes
+
+    `p95_by_route` breaks the aggregate p95 into the seven k6 routes. Two findings
+    change how the earlier numbers should be read.
+
+    **One route dominates every container target.** `/match/team/:id` - the team join
+    lookup - carries 87-95 % of total service time on `oci-axum` (95.0 %),
+    `oci-node` (94.6 %), `oci-native` (87.7 %) and `oci-spring` (87.2 %), and 93.5 %
+    on `wasm-rust`. Its steady p95 is 1.43 ms (`oci-spring`) to 4.71 ms
+    (`wasm-rust`), while every other route on those targets sits between 0.016 and
+    0.31 ms. Service-time share is request rate x p95, so this combines the route's
+    30 % traffic weight with its cost - a slow route called rarely would not show up
+    here.
+
+    **The endpoint we designed as "expensive" is not the expensive one.** The
+    `aggregate` category (`/match/result-table`, a full result-table query) resolves
+    in 0.11-0.31 ms on every target and accounts for only 4-7 % of service time. The
+    scenario's cost is concentrated in the `lookup` category instead. That is worth
+    stating explicitly in the thesis: the weighting was designed on expected query
+    cost, and the measurement disagrees.
+
+    **`wasm-js` is a different animal entirely.** Its 19.2 ms aggregate p95 is not
+    uniform slowness - it is one route. `/teams/record/:id` takes **30.9 ms** and
+    alone accounts for 81.2 % of its service time, while `/match/team/:id`, the
+    route that dominates everyone else, costs it only 2.15 ms - *faster* than
+    `oci-axum`, `oci-node` and `wasm-rust` manage. So `wasm-js` does not have a
+    general latency problem; it has one pathological endpoint, and the aggregate
+    metric was hiding that behind a single number.
+
+    **On trivial routes the runtimes converge.** For the three `simple` key lookups,
+    `oci-axum` (0.016-0.026 ms) and `oci-node` (0.020-0.031 ms) lead, but
+    `wasm-rust` (0.038-0.073 ms) is in the same band as `oci-spring` (0.068-0.074)
+    and `oci-native` (0.077-0.091). The Wasm penalty is not a fixed per-request
+    overhead that shows up everywhere - it appears specifically on the
+    database-heavy lookup, where `wasm-rust` is the slowest target in the field.
+    """)
+    return
+
+
+@app.cell
+def route_latency(
+    df_scaling,
+    make_route_latency_bars,
+    make_route_latency_heatmap,
+    make_service_time_chart,
+    process_route_latency,
+    process_route_service_time,
+):
+    # Per-route latency and where service time is spent
+    df_route_latency = process_route_latency(df_scaling["p95_by_route"])
+    df_service_time = process_route_service_time(df_scaling)
+
+    chart_route_heatmap = make_route_latency_heatmap(df_route_latency)
+    chart_service_time = make_service_time_chart(df_service_time)
+    chart_route_bars = make_route_latency_bars(df_route_latency)
+
+    mo.vstack([
+        mo.hstack([chart_route_heatmap, chart_service_time], justify="start", align="center"),
+        df_route_latency,
+    ])
+
+    return (
+        chart_route_bars,
+        chart_route_heatmap,
+        chart_service_time,
+        df_route_latency,
+        df_service_time,
+    )
 
 
 @app.cell
@@ -1879,14 +2340,14 @@ def md_energy():
     `oci-axum` lowest (3 431 J).
 
     **Per-request efficiency reorders that list**, because absolute energy rewards
-    targets that simply did less work. Normalized: `oci-axum` 10.3, `oci-node` 14.5,
-    `oci-spring` 16.4, `oci-native` 23.8, `wasm-js` 35.5, `wasm-rust` 43.5 J per
-    10k requests. `wasm-js` looks mid-pack in absolute joules only because it served
-    1.28 M requests against `oci-spring`'s 5.23 M.
+    targets that simply did less work. Normalized: `oci-axum` 949, `oci-node` 1 345,
+    `oci-spring` 1 407, `oci-native` 2 082, `wasm-js` 4 320 and `wasm-rust`
+    4 564 J per 10k requests. `wasm-js` looks mid-pack in absolute joules only
+    because it served 10 463 requests against `oci-spring`'s 60 957.
 
     Normalizing by *successful* requests instead barely moves the picture
-    (`wasm-js` 35.5 → 35.9 J/10k): its 1.14 % failure rate is too small to explain
-    the efficiency gap — the cost is in how it serves the requests that do succeed.
+    (`wasm-js` 4 320 -> 4 386 J/10k): its 1.50 % failure rate is too small to explain
+    the efficiency gap - the cost is in how it serves the requests that do succeed.
     """)
     return
 
@@ -1940,18 +2401,18 @@ def md_efficiency_scatter():
     both axes at once.
 
     **Only two targets are non-dominated: `oci-axum` and `oci-spring`.** `oci-axum`
-    is the cheapest per unit of work (10.3 J/10k requests, 972 requests per joule) and
-    `oci-spring` is the fastest (75.3 req/s) at a moderate 16.4 J/10k. Everything else
-    is beaten outright by one of them:
+    is the cheapest per unit of work (949 J/10k requests, 10.5 requests per joule)
+    and `oci-spring` is the fastest (526.5 req/s) at a moderate 1 407 J/10k.
+    Everything else is beaten outright by one of them:
 
-    - `oci-node` (43.6 req/s, 14.5 J/10k) is dominated by `oci-axum`, which is both
+    - `oci-node` (304.3 req/s, 1 345 J/10k) is dominated by `oci-axum`, which is both
       slightly faster **and** 29 % cheaper per request.
-    - `oci-native` pays 23.8 J/10k for 59.8 req/s - `oci-spring` delivers 26 % more
-      throughput for 31 % less energy per request.
+    - `oci-native` pays 2 082 J/10k for 417.3 req/s - `oci-spring` delivers 26 % more
+      throughput for 32 % less energy per request.
     - Both Wasm targets sit in the worst quadrant: `wasm-rust` is the most expensive
-      per request in the field (43.5 J/10k, 230 requests per joule - **4.2x**
-      `oci-axum`'s cost) and `wasm-js` combines the second-worst cost (35.5 J/10k)
-      with the lowest throughput (7.0 req/s).
+      per request in the field (4 564 J/10k, 2.19 requests per joule - **4.8x**
+      `oci-axum`'s cost) and `wasm-js` combines the second-worst cost (4 320 J/10k)
+      with the lowest throughput (15.7 req/s).
 
     **Energy does not buy latency.** In the cost-vs-responsiveness plot the frontier
     runs `oci-axum` -> `oci-node` -> `oci-spring`: paying more per request does move
@@ -1964,11 +2425,12 @@ def md_efficiency_scatter():
     is `wasm-js` along the throughput axis, and it never comes close to the
     container targets.
 
-    A caveat worth stating in the thesis: efficiency here is measured at each
-    target's *own* steady-state throughput, not at a matched request rate. A target
-    serving less traffic still pays its fixed idle draw, so part of the Wasm penalty
-    is a fixed cost spread over fewer requests rather than a higher marginal cost per
-    request.
+    Two caveats worth stating in the thesis. Efficiency is measured at each target's
+    *own* steady-state throughput, not at a matched request rate, so part of the Wasm
+    penalty is a fixed idle draw spread over fewer requests rather than a higher
+    marginal cost. And no target is anywhere near saturation - peak in-flight
+    concurrency is about one request cluster-wide - so these are efficiency figures
+    at roughly 10 % utilisation, not at capacity.
     """)
     return
 
@@ -1994,7 +2456,6 @@ def efficiency_scatters(
         mo.hstack([chart_efficiency_scatter, chart_work_per_joule], justify="start"),
         mo.hstack([chart_energy_latency, chart_efficiency_runs], justify="start"),
     ])
-
     return (
         chart_efficiency_runs,
         chart_efficiency_scatter,
@@ -2005,7 +2466,7 @@ def efficiency_scatters(
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def md_cooldown():
     mo.md(r"""
     ## Cooldown: retained footprint, not scale-to-zero
@@ -2082,87 +2543,136 @@ def _():
     return
 
 
-@app.cell(hide_code=True)
-def _(df_scaling):
-    category_map = {
-        "/players/:id": "simple",
-        "/teams/:id": "simple",
-        "/match/:id": "simple",
-        "/players/record/:id": "detailed",
-        "/teams/record/:id": "detailed",
-        "/match/team/:id": "lookup",
-        "/match/result-table": "aggregate",
-    }
+@app.cell
+def md_request_mix():
+    mo.md(r"""
+    ## Request mix: is the offered load the load we designed?
 
-    # Group by 'name' and compute total requests
-    df_pie_data = (
-        df_scaling["requests"]
-       .with_columns(
-            # 2. Safely map categories, falling back to 'other' for unmapped routes
-            pl.col("url")
-            .cast(pl.String)
-            .replace_strict(category_map, default="other")
-            .alias("category")
-        )
-        .group_by("category")
-        .agg(pl.len().alias("total_requests"))  # pl.len() counts rows per group
-        .with_columns(
-            (pl.col("total_requests") / pl.col("total_requests").sum() * 100).alias("pct")
-        )
-        .sort("total_requests", descending=True)
-    )
+    Every target is driven by the same k6 scenario, which picks a **category** by
+    weight and then a route uniformly inside that category:
 
+    | Category | Weight | Routes | Designed share per route |
+    | --- | --- | --- | --- |
+    | `simple` | 10 % | `/players/:id`, `/teams/:id`, `/match/:id` | 3.33 % each |
+    | `detailed` | 30 % | `/players/record/:id`, `/teams/record/:id` | 15.0 % each |
+    | `lookup` | 30 % | `/match/team/:id` | 30.0 % |
+    | `aggregate` | 30 % | `/match/result-table` | 30.0 % |
 
+    The point of the weighting is that cheap key lookups make up only a tenth of the
+    traffic, while the three expensive shapes - multi-row record queries, a join by
+    team, and a full result-table aggregation - carry 90 % of it. Comparing runtimes
+    on `/players/:id` alone would mostly measure HTTP framing overhead; this mix
+    makes the database and serialisation work dominate instead.
 
-    base = alt.Chart(df_pie_data).encode(
-        theta=alt.Theta("total_requests:Q", stack=True),
-        color=alt.Color("category:N", title="Request Type / Category"),
-        tooltip=[
-            alt.Tooltip("category:N", title="Category"),
-            alt.Tooltip("total_requests:Q", format=",", title="Total Requests"),
-            alt.Tooltip("pct:Q", format=".1f", title="Percentage (%)"),
-        ]
-    )
+    **The run reproduces the design almost exactly.** Observed shares are
+    `simple` 10.03 %, `detailed` 29.90 %, `lookup` 30.08 % and `aggregate` 29.99 %,
+    every category within 0.1 pp of its weight. The intra-category split holds too:
+    `/players/record/:id` 15.06 % vs `/teams/record/:id` 14.84 % against a designed
+    15.0 % each, and the three `simple` routes land at 3.36 / 3.35 / 3.31 % against
+    3.33 %. Random route selection had ~11.7 M requests to converge over, so this is
+    the expected outcome - but it confirms no target skewed the mix by failing a
+    particular route, which would quietly invalidate the cross-target comparison.
 
-    # 1. Arc slices
-    arcs = base.mark_arc(
-        innerRadius=50,  # Set to 0 if you want a solid pie chart instead of a donut
-        outerRadius=120,
-        stroke="white",
-        strokeWidth=2
-    )
-
-    # 2. Percentage labels directly on the slices
-    text = base.mark_text(
-        radius=85,
-        fontWeight="bold",
-        fontSize=13,
-        fill="white"
-    ).encode(
-        text=alt.Text("pct:Q", format=".1f")
-    )
-
-    pie_chart = (
-        (arcs + text)
-        .properties(
-            title={
-                "text": "Request Distribution by Category",
-                "subtitle": "Total volume per request category over 13-minute run",
-            },
-            width=350,
-            height=350,
-        )
-        .configure_view(strokeWidth=0)
-    )
-
-    pie_chart
-    return (df_pie_data,)
+    Counts come from the `http_reqs` counter differenced per label series. Counting
+    scrape rows instead - one row per label series per sample - measures how many
+    routes a category owns rather than how much traffic it received, and reports
+    `simple` as 41 % of the load because it spans three routes.
+    """)
+    return
 
 
 @app.cell
-def _(df_pie_data):
-    df_pie_data
+def request_mix(
+    df_scaling,
+    make_request_mix_donut,
+    make_request_mix_validation,
+    process_request_mix,
+):
+    # Request mix: what the k6 scenario actually offered
+    df_request_mix, df_route_mix = process_request_mix(df_scaling["requests"])
+
+    chart_request_mix = make_request_mix_donut(df_request_mix)
+    chart_request_mix_validation = make_request_mix_validation(df_route_mix)
+
+    mo.hstack([chart_request_mix, chart_request_mix_validation], justify="start", align="center")
+    return (
+        chart_request_mix,
+        chart_request_mix_validation,
+        df_request_mix,
+        df_route_mix,
+    )
+
+
+@app.cell
+def request_mix_table(df_route_mix):
+    df_route_mix
     return
+
+
+@app.cell
+def md_variant_ab():
+    mo.md(r"""
+    ## Deployment variant: monolithic vs componentized `wasm-rust`
+
+    The same Rust application built as three separate Wasm components
+    (`players` / `teams` / `match`) routed inside one SpinApp, against the single
+    monolithic component. Same pod topology, same KEDA configuration, same scenario
+    - the artifact is the only thing that changed.
+
+    **This is a 3-iteration probe against a 10-iteration baseline**, so it is
+    reported separately and is not enrolled in the six-target comparison: every
+    other target ships one binary serving all routes, and letting one runtime enter
+    twice would give it two attempts at the Pareto frontier. The componentized run
+    also has no energy data - its `pod_joules` parquets are empty - so J/10k
+    requests cannot be compared at all.
+
+    **Componentization measurably helps the small routes.** All four cheap routes
+    improve by more than the combined standard deviations of both runs:
+    `/players/:id` 0.059 -> 0.025 ms (-58 %), `/teams/:id` 0.059 -> 0.026 ms (-56 %),
+    `/players/record/:id` 0.043 -> 0.032 ms (-27 %), `/teams/record/:id`
+    0.038 -> 0.029 ms (-25 %). This is what the theory predicts: a smaller module
+    instantiates faster, and on a route where the work itself takes 40 microseconds
+    the instantiation share is large enough to see.
+
+    **It changes nothing that the aggregate metric can see.** Overall steady p95 is
+    3.497 ms monolithic vs 3.539 ms componentized. The three heavier routes shift by
+    less than their noise band (`/match/team/:id` +1.02 ms with a 2.85 ms band), and
+    because that one route owns 94 % of service time, savings of 10-34 microseconds
+    on the cheap routes are invisible in the total. The measured gains sit exactly
+    where the pre-registered ceiling put them: the idle-load overhead gap to
+    `oci-axum` was 0.12 ms, and nothing here exceeds it.
+
+    **It costs memory.** Resident memory per replica rises from 41.9 MB to 56.9 MB
+    (+36 %), and cluster total from 261 MB to 355 MB - each pod now instantiates
+    three components instead of one. That delta is far outside the 2.5 MB run-to-run
+    band, making it the clearest effect in the experiment. Throughput (145.7 vs
+    138.8 req/s) and replica count (6.22 vs 6.25) are unchanged within noise, and
+    both builds hold a perfect check rate.
+
+    **Conclusion:** at this workload, component granularity buys microseconds on
+    routes that were already fast and costs 15 MB per replica. It is a real effect,
+    correctly signed, and too small to matter here - the honest reading is that
+    componentization pays off for cold-start-dominated or highly skewed workloads,
+    not for a steady mixed load whose cost sits in one database-heavy route.
+    """)
+    return
+
+
+@app.cell
+def variant_ab(compare_variant, df_variants, make_variant_route_chart):
+    # Deployment variant A/B: monolithic vs componentized wasm-rust
+    df_variant_routes, df_variant_summary = compare_variant(df_variants, "wasm-rust-components")
+    chart_variant_routes = make_variant_route_chart(df_variant_routes, "wasm-rust-components")
+
+    mo.vstack([
+        chart_variant_routes,
+        df_variant_summary,
+        df_variant_routes.select([
+            "route", "baseline_ms", "variant_ms", "delta_ms", "delta_pct", "noise_band", "significant"
+        ]),
+    ])
+
+    return chart_variant_routes, df_variant_routes, df_variant_summary
 
 
 @app.cell
@@ -2174,17 +2684,28 @@ def export_figures(
     chart_energy,
     chart_energy_latency,
     chart_pods_by_window,
+    chart_request_mix,
+    chart_request_mix_validation,
+    chart_route_bars,
+    chart_route_heatmap,
+    chart_service_time,
     chart_ts_panel,
+    chart_variant_routes,
     chart_work_per_joule,
     df_cooldown_idle,
     df_efficiency,
     df_efficiency_runs,
     df_energy_windows,
     df_master_summary,
+    df_request_mix,
     df_request_outcomes,
+    df_route_latency,
+    df_route_mix,
     df_scale_to_zero,
+    df_service_time,
+    df_variant_routes,
+    df_variant_summary,
     df_windowed_summary,
-    export_all,
     ts_charts,
 ):
     # Write every thesis figure/table to disk (figures/*.svg|png, tables/*.csv)
@@ -2203,6 +2724,12 @@ def export_figures(
             "scaling_work_per_joule_scatter": chart_work_per_joule,
             "scaling_energy_latency_scatter": chart_energy_latency,
             "scaling_efficiency_runs_scatter": chart_efficiency_runs,
+            "scaling_request_mix": chart_request_mix,
+            "scaling_request_mix_validation": chart_request_mix_validation,
+            "scaling_route_latency_heatmap": chart_route_heatmap,
+            "scaling_route_latency_bars": chart_route_bars,
+            "scaling_service_time_share": chart_service_time,
+            "scaling_variant_route_p95": chart_variant_routes,
         },
         tables={
             "scaling_master_summary": df_master_summary,
@@ -2213,6 +2740,12 @@ def export_figures(
             "scaling_request_outcomes": df_request_outcomes,
             "scaling_efficiency": df_efficiency,
             "scaling_efficiency_runs": df_efficiency_runs,
+            "scaling_request_mix": df_request_mix,
+            "scaling_route_mix": df_route_mix,
+            "scaling_route_latency": df_route_latency,
+            "scaling_service_time": df_service_time,
+            "scaling_variant_routes": df_variant_routes,
+            "scaling_variant_summary": df_variant_summary,
         },
     )
     export_manifest
