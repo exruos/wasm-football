@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.15"
+__generated_with = "0.23.16"
 app = marimo.App(width="medium")
 
 with app.setup:
@@ -141,6 +141,7 @@ def _():
         'iterations': 'k6_iterations_total',
         'vus': 'k6_vus',
         'p95': 'histogram_quantile(0.95, sum(k6_http_req_duration_seconds_bucket) by (vmrange))',
+        'p95_by_route': 'histogram_quantile(0.95, sum(k6_http_req_duration_seconds_bucket) by (vmrange, url))',
         'p99': 'histogram_quantile(0.99, sum(k6_http_req_duration_seconds_bucket) by (vmrange))',
         'rps': 'rate(k6_http_req_duration_seconds_count)',
         'memory': 'pod_memory_working_set_bytes{pod=~"football-app.*"} / 1024 / 1024',
@@ -157,7 +158,7 @@ def _():
         "baseline":  {"pod_joules", "iterations", "p95", "p99", "rps", "memory", "cpu_usage"},
         "idle": {"pod_joules"},
         "idle-scaled": {"node_joules", "node_cpu_watts", "node_avg_cpu_watts"},
-        "scaling": {"pod_joules", "pods", "requests", "vus", "p95", "p99", "rps", "memory", "checks_rate", "cpu_usage"},
+        "scaling": {"pod_joules", "pods", "requests", "vus", "p95", "p95_by_route", "p99", "rps", "memory", "checks_rate", "cpu_usage"},
     }
     return (scenario_metrics,)
 
