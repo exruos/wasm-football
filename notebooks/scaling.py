@@ -757,9 +757,10 @@ def processing_helpers():
         """
         Paired A/B of a deployment variant against its baseline.
 
-        Returns (per_route, summary). `significant` marks deltas that clear both
-        combined standard deviations - with a 3-iteration probe against a 10-iteration
-        baseline, anything inside that band is noise, not a result.
+        Returns (per_route, summary). `significant` marks deltas larger than the sum
+        of both standard deviations; anything inside that band is run-to-run noise.
+        The summary carries the same sd columns for the cluster-level metrics so the
+        energy and memory deltas can be judged against the same rule.
         """
         baseline = VARIANT_OF[variant]
 
@@ -788,28 +789,39 @@ def processing_helpers():
             if metric not in df_variants:
                 return pl.DataFrame({"target": [], alias: []}, schema={"target": pl.String, alias: pl.Float64})
             frame = metric_frame(df_variants, metric).filter(window_mask(window))
-            return (
-                frame.group_by(["target", "iteration"])
-                .agg(expr.alias("v"))
-                .group_by("target")
-                .agg(pl.col("v").mean().alias(alias))
-            )
+            per_iter = frame.group_by(["target", "iteration"]).agg(expr.alias("v"))
+            return per_iter.group_by("target").agg([
+                pl.col("v").mean().alias(alias),
+                pl.col("v").std().alias(f"{alias}_sd"),
+            ])
+
+        # Energy is only comparable if the variant run actually captured RAPL data.
+        if df_variants.get("pod_joules") is not None and df_variants["pod_joules"].height:
+            _, energy = process_pod_joules(df_variants["pod_joules"], df_variants["requests"])
+            energy = energy.select([
+                "target",
+                pl.col("total_mean").alias("joules_total"),
+                pl.col("total_std").alias("joules_total_sd"),
+                pl.col("efficiency_mean").alias("joules_per_10k_req"),
+                pl.col("efficiency_std").alias("joules_per_10k_req_sd"),
+            ])
+        else:
+            energy = pl.DataFrame(schema={"target": pl.String})
+
+        memory = per_pod_and_cluster(df_variants["memory"], window).group_by("target").agg([
+            pl.col("per_pod").mean().alias("memory_per_pod_mb"),
+            pl.col("per_pod").std().alias("memory_per_pod_mb_sd"),
+            pl.col("cluster").mean().alias("memory_cluster_mb"),
+            pl.col("cluster").std().alias("memory_cluster_mb_sd"),
+        ])
 
         summary = (
             _metric("p95", pl.col("value").mean(), "p95_ms")
             .join(_metric("rps", pl.col("value").mean(), "rps"), on="target", how="left")
             .join(_metric("pods", pl.col("value").mean(), "pods"), on="target", how="left")
             .join(_metric("checks_rate", pl.col("value").min(), "min_checks_rate"), on="target", how="left")
-            .join(
-                per_pod_and_cluster(df_variants["memory"], window)
-                .group_by("target")
-                .agg([
-                    pl.col("per_pod").mean().alias("memory_per_pod_mb"),
-                    pl.col("cluster").mean().alias("memory_cluster_mb"),
-                ]),
-                on="target",
-                how="left",
-            )
+            .join(memory, on="target", how="left")
+            .join(energy, on="target", how="left")
             .join(
                 per_pod_and_cluster(df_variants["cpu_usage"], window)
                 .group_by("target")
@@ -820,6 +832,46 @@ def processing_helpers():
             .sort("target")
         )
         return per_route, summary
+
+
+    def compare_variant_deltas(df_variant_summary: pl.DataFrame, variant: str) -> pl.DataFrame:
+        """
+        Long-form baseline/variant/delta view of the cluster-level summary metrics,
+        each judged against the combined standard deviations of both runs - the same
+        rule the per-route table uses.
+        """
+        baseline = VARIANT_OF[variant]
+        metrics = [
+            ("p95_ms", "Steady P95 (ms)"),
+            ("rps", "Throughput (req/s)"),
+            ("pods", "Replicas"),
+            ("memory_per_pod_mb", "Memory per pod (MB)"),
+            ("memory_cluster_mb", "Memory cluster (MB)"),
+            ("joules_per_10k_req", "Energy (J / 10k req)"),
+            ("cpu_cores_cluster", "CPU cores (cluster)"),
+        ]
+        rows = []
+        for col, label in metrics:
+            if col not in df_variant_summary.columns:
+                continue
+            _get = lambda t, c: df_variant_summary.filter(pl.col("target") == t)[c].item()
+            b, v = _get(baseline, col), _get(variant, col)
+            sd_col = f"{col}_sd"
+            band = (
+                _get(baseline, sd_col) + _get(variant, sd_col)
+                if sd_col in df_variant_summary.columns
+                else None
+            )
+            rows.append({
+                "metric": label,
+                "baseline": b,
+                "variant": v,
+                "delta": v - b,
+                "delta_pct": (v - b) / b * 100 if b else None,
+                "noise_band": band,
+                "significant": abs(v - b) > band if band is not None else None,
+            })
+        return pl.DataFrame(rows)
 
 
     def process_scale_up_responsiveness(
@@ -1083,6 +1135,7 @@ def processing_helpers():
         build_windowed_summary,
         category_scale,
         compare_variant,
+        compare_variant_deltas,
         metric_title,
         process_all_metrics_summary,
         process_cooldown_idle_drain,
@@ -1836,21 +1889,41 @@ def chart_helpers(
 
     def make_route_latency_bars(df_route_latency: pl.DataFrame) -> alt.Chart:
         """Per-route p95 per target on a shared log axis, faceted by route."""
+        # A bar is drawn from the scale's zero baseline, which does not exist on a
+        # log scale - encoding only `x` renders an empty panel. Both ends have to be
+        # given explicitly, so bars start at a fixed floor below the smallest
+        # observed p95 (0.016 ms) and grow to the measured value.
+        df_plot = df_route_latency.with_columns(pl.lit(LOG_FLOOR).alias("floor_ms"))
+
         return (
-            alt.Chart(df_route_latency)
+            alt.Chart(df_plot)
             .mark_bar()
             .encode(
-                x=alt.X("p95_ms:Q", title="P95 (ms) - log scale", scale=alt.Scale(type="log", nice=False)),
+                x=alt.X(
+                    "floor_ms:Q",
+                    title="P95 (ms) - log scale",
+                    scale=alt.Scale(type="log", nice=False),
+                ),
+                x2=alt.X2("p95_ms:Q"),
                 y=alt.Y("target:N", title=None, sort=TARGET_ORDER),
                 color=target_color(),
                 row=alt.Row("route:N", title=None, header=alt.Header(labelAngle=0, labelAlign="left")),
                 tooltip=[
                     alt.Tooltip("target:N", title="Target"),
                     alt.Tooltip("route:N", title="Route"),
+                    alt.Tooltip("category:N", title="Category"),
                     alt.Tooltip("p95_ms:Q", format=".3f", title="P95 (ms)"),
+                    alt.Tooltip("p95_sd:Q", format=".3f", title="sd"),
                 ],
             )
-            .properties(width=380, height=90, title="P95 by route and target")
+            .properties(
+                width=380,
+                height=90,
+                title={
+                    "text": "P95 by route and target",
+                    "subtitle": f"Bars start at the {LOG_FLOOR} ms floor; log axis",
+                },
+            )
         )
 
 
@@ -2273,7 +2346,7 @@ def md_route_latency():
 
     **`wasm-js` is a different animal entirely.** Its 19.2 ms aggregate p95 is not
     uniform slowness - it is one route. `/teams/record/:id` takes **30.9 ms** and
-    alone accounts for 81.2 % of its service time, while `/match/team/:id`, the
+    alone accounts for 87.7 % of its service time, while `/match/team/:id`, the
     route that dominates everyone else, costs it only 2.15 ms - *faster* than
     `oci-axum`, `oci-node` and `wasm-rust` manage. So `wasm-js` does not have a
     general latency problem; it has one pathological endpoint, and the aggregate
@@ -2281,7 +2354,7 @@ def md_route_latency():
 
     **On trivial routes the runtimes converge.** For the three `simple` key lookups,
     `oci-axum` (0.016-0.026 ms) and `oci-node` (0.020-0.031 ms) lead, but
-    `wasm-rust` (0.038-0.073 ms) is in the same band as `oci-spring` (0.068-0.074)
+    `wasm-rust` (0.059-0.073 ms) is in the same band as `oci-spring` (0.068-0.074)
     and `oci-native` (0.077-0.091). The Wasm penalty is not a fixed per-request
     overhead that shows up everywhere - it appears specifically on the
     database-heavy lookup, where `wasm-rust` is the slowest target in the field.
@@ -2309,8 +2382,8 @@ def route_latency(
     mo.vstack([
         mo.hstack([chart_route_heatmap, chart_service_time], justify="start", align="center"),
         df_route_latency,
+        chart_route_bars
     ])
-
     return (
         chart_route_bars,
         chart_route_heatmap,
@@ -2619,60 +2692,84 @@ def md_variant_ab():
     monolithic component. Same pod topology, same KEDA configuration, same scenario
     - the artifact is the only thing that changed.
 
-    **This is a 3-iteration probe against a 10-iteration baseline**, so it is
-    reported separately and is not enrolled in the six-target comparison: every
-    other target ships one binary serving all routes, and letting one runtime enter
-    twice would give it two attempts at the Pareto frontier. The componentized run
-    also has no energy data - its `pod_joules` parquets are empty - so J/10k
-    requests cannot be compared at all.
+    Both builds now have **10 iterations and full RAPL capture**, so this is a
+    symmetric comparison and every metric below is judged against the same rule as
+    the per-route table: a delta counts only if it exceeds the sum of the two runs'
+    standard deviations. It is still reported separately rather than as a seventh
+    target, because every other target ships one binary serving all routes, and
+    letting one runtime enter the comparison twice would give it two attempts at the
+    Pareto frontier.
 
-    **Componentization measurably helps the small routes.** All four cheap routes
-    improve by more than the combined standard deviations of both runs:
-    `/players/:id` 0.059 -> 0.025 ms (-58 %), `/teams/:id` 0.059 -> 0.026 ms (-56 %),
-    `/players/record/:id` 0.043 -> 0.032 ms (-27 %), `/teams/record/:id`
-    0.038 -> 0.029 ms (-25 %). This is what the theory predicts: a smaller module
-    instantiates faster, and on a route where the work itself takes 40 microseconds
-    the instantiation share is large enough to see.
+    **Componentization measurably helps the small routes.** Four of the seven routes
+    clear the noise band, all in the same direction: `/players/:id`
+    0.059 -> 0.027 ms (-54.6 %), `/teams/:id` 0.059 -> 0.027 ms (-53.6 %),
+    `/players/record/:id` 0.043 -> 0.034 ms (-22.8 %), `/teams/record/:id`
+    0.038 -> 0.031 ms (-19.4 %). This is what the theory predicts: a smaller module
+    resolves and dispatches faster, and on a route where the work itself takes
+    40 microseconds that overhead share is large enough to see.
 
-    **It changes nothing that the aggregate metric can see.** Overall steady p95 is
-    3.497 ms monolithic vs 3.539 ms componentized. The three heavier routes shift by
-    less than their noise band (`/match/team/:id` +1.02 ms with a 2.85 ms band), and
-    because that one route owns 94 % of service time, savings of 10-34 microseconds
-    on the cheap routes are invisible in the total. The measured gains sit exactly
-    where the pre-registered ceiling put them: the idle-load overhead gap to
-    `oci-axum` was 0.12 ms, and nothing here exceeds it.
+    **Nothing the aggregate metric can see moves.** Steady p95 is 3.497 ms
+    monolithic vs 3.656 ms componentized - a +4.6 % shift inside a 0.295 ms noise
+    band. The three heavier routes are all inside their bands too, including
+    `/match/team/:id` (-1.6 %, band 1.22 ms). Because that one route owns 94 % of
+    service time, savings of 8-32 microseconds on the cheap routes cannot surface in
+    the total. Throughput (145.8 vs 143.2 req/s, band 2.80) and replica count
+    (6.22 vs 6.11, band 0.58) are likewise unchanged, and both builds hold a perfect
+    check rate.
 
-    **It costs memory.** Resident memory per replica rises from 41.9 MB to 56.9 MB
-    (+36 %), and cluster total from 261 MB to 355 MB - each pod now instantiates
-    three components instead of one. That delta is far outside the 2.5 MB run-to-run
-    band, making it the clearest effect in the experiment. Throughput (145.7 vs
-    138.8 req/s) and replica count (6.22 vs 6.25) are unchanged within noise, and
-    both builds hold a perfect check rate.
+    **Energy is a wash.** 4564 vs 4659 J per 10k requests, a +2.1 % difference
+    against a 101 J noise band - the closest call in the table, and it lands just
+    inside. The honest statement is that componentization did not measurably change
+    energy per request at this workload, not that it is free: the point estimate
+    moves the wrong way, and separating +2 % from zero would need more iterations
+    than this.
 
-    **Conclusion:** at this workload, component granularity buys microseconds on
-    routes that were already fast and costs 15 MB per replica. It is a real effect,
-    correctly signed, and too small to matter here - the honest reading is that
-    componentization pays off for cold-start-dominated or highly skewed workloads,
-    not for a steady mixed load whose cost sits in one database-heavy route.
+    **It costs memory, and that is the one unambiguous result.** Resident memory per
+    replica rises 41.9 -> 57.7 MB (+37.9 %, band 4.73) and cluster total
+    261 -> 354 MB (+35.8 %, band 21.5). Each pod instantiates three components
+    instead of one, and the delta is more than three times its band - by a wide
+    margin the largest effect in the experiment.
+
+    **Conclusion:** at this workload, component granularity buys tens of
+    microseconds on routes that were already fast, changes nothing measurable in
+    aggregate latency, throughput or energy, and costs 16 MB per replica. The effect
+    on the small routes is real and correctly signed, so the mechanism is doing what
+    it should - it simply has no leverage on a steady mixed load whose cost is
+    concentrated in one database-heavy route. Componentization should be argued for
+    cold-start-dominated or independently-scaled workloads, not for this one.
     """)
+
     return
 
 
 @app.cell
-def variant_ab(compare_variant, df_variants, make_variant_route_chart):
+def variant_ab(
+    compare_variant,
+    compare_variant_deltas,
+    df_variants,
+    make_variant_route_chart,
+):
     # Deployment variant A/B: monolithic vs componentized wasm-rust
     df_variant_routes, df_variant_summary = compare_variant(df_variants, "wasm-rust-components")
+    df_variant_deltas = compare_variant_deltas(df_variant_summary, "wasm-rust-components")
     chart_variant_routes = make_variant_route_chart(df_variant_routes, "wasm-rust-components")
 
     mo.vstack([
         chart_variant_routes,
-        df_variant_summary,
+        df_variant_deltas,
         df_variant_routes.select([
-            "route", "baseline_ms", "variant_ms", "delta_ms", "delta_pct", "noise_band", "significant"
+            "route", "category", "baseline_ms", "variant_ms",
+            "delta_ms", "delta_pct", "noise_band", "significant"
         ]),
+        df_variant_summary,
     ])
 
-    return chart_variant_routes, df_variant_routes, df_variant_summary
+    return (
+        chart_variant_routes,
+        df_variant_deltas,
+        df_variant_routes,
+        df_variant_summary,
+    )
 
 
 @app.cell
@@ -2703,6 +2800,7 @@ def export_figures(
     df_route_mix,
     df_scale_to_zero,
     df_service_time,
+    df_variant_deltas,
     df_variant_routes,
     df_variant_summary,
     df_windowed_summary,
@@ -2745,6 +2843,7 @@ def export_figures(
             "scaling_route_latency": df_route_latency,
             "scaling_service_time": df_service_time,
             "scaling_variant_routes": df_variant_routes,
+            "scaling_variant_deltas": df_variant_deltas,
             "scaling_variant_summary": df_variant_summary,
         },
     )
