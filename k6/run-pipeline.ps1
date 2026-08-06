@@ -1,6 +1,6 @@
 param (
     [Parameter(Mandatory = $false)]
-    [ValidateSet("wasm-rust", "wasm-js", "oci-axum", "oci-node", "oci-spring", "oci-native")]
+    [ValidateSet("wasm-rust", "wasm-js", "oci-axum", "oci-node", "oci-spring", "oci-native", "wasm-rust-components")]
     [string]$Target,
 
     [Parameter(Mandatory = $false)]
@@ -26,6 +26,7 @@ $TargetMap = @{
     "oci-node"   = @{ Baseline = "node-baseline"; Scaled = "node-scaled" } 
     "oci-spring" = @{ Baseline = "spring-baseline"; Scaled = "spring-scaled" }
     "oci-native" = @{ Baseline = "native-baseline"; Scaled = "native-scaled" }
+    "wasm-rust-components" = @{ Baseline = "wasm-rust-components-baseline"; Scaled = "wasm-rust-components-scaled" }
 }
 
 $TargetsToRun = if ($Target) { @($Target) } else { $TargetMap.Keys }

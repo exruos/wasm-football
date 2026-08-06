@@ -1,6 +1,6 @@
 param (
     [Parameter(Mandatory = $true)]
-    [ValidateSet("wasm-rust", "wasm-js", "oci-axum", "oci-node", "oci-spring", "oci-native")]
+    [ValidateSet("wasm-rust", "wasm-js", "oci-axum", "oci-node", "oci-spring", "oci-native", "wasm-rust-components")]
     [string]$Target,
 
     [Parameter(Mandatory = $true)]
@@ -17,7 +17,7 @@ param (
 )
 
 # --- Extract metadata from the Target parameter ---
-$Parts = $Target -Split '-'
+$Parts = $Target -Split '-', 2
 $Runtime = $Parts[0]   # "wasm" or "oci"
 $Framework = $Parts[1]   # "rust", "js", "axum", "node", or "spring"
 

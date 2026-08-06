@@ -305,3 +305,13 @@
 {"StartTime":"2026-07-31T11:13:10Z","EndTime":"2026-07-31T11:13:12Z","Runtime":"wasm","Framework":"rust","Scenario":"coldstart","Iteration":29}
 {"StartTime":"2026-07-31T11:14:13Z","EndTime":"2026-07-31T11:14:15Z","Runtime":"wasm","Framework":"rust","Scenario":"coldstart","Iteration":30}
 {"StartTime":"2026-07-31T11:18:49Z","EndTime":"2026-07-31T11:28:49Z","Runtime":"wasm","Framework":"rust","Scenario":"idle-scaled","Iteration":1}
+{"StartTime":"2026-08-06T03:46:56Z","EndTime":"2026-08-06T03:59:56Z","Runtime":"wasm","Framework":"rust-components","Scenario":"scaling","Iteration":1}
+{"StartTime":"2026-08-06T04:00:40Z","EndTime":"2026-08-06T04:13:40Z","Runtime":"wasm","Framework":"rust-components","Scenario":"scaling","Iteration":2}
+{"StartTime":"2026-08-06T04:14:23Z","EndTime":"2026-08-06T04:27:24Z","Runtime":"wasm","Framework":"rust-components","Scenario":"scaling","Iteration":3}
+{"StartTime":"2026-08-06T04:27:57Z","EndTime":"2026-08-06T04:40:58Z","Runtime":"wasm","Framework":"rust-components","Scenario":"scaling","Iteration":4}
+{"StartTime":"2026-08-06T04:41:41Z","EndTime":"2026-08-06T04:54:41Z","Runtime":"wasm","Framework":"rust-components","Scenario":"scaling","Iteration":5}
+{"StartTime":"2026-08-06T04:55:24Z","EndTime":"2026-08-06T05:08:24Z","Runtime":"wasm","Framework":"rust-components","Scenario":"scaling","Iteration":6}
+{"StartTime":"2026-08-06T05:09:07Z","EndTime":"2026-08-06T05:22:08Z","Runtime":"wasm","Framework":"rust-components","Scenario":"scaling","Iteration":7}
+{"StartTime":"2026-08-06T05:22:51Z","EndTime":"2026-08-06T05:35:52Z","Runtime":"wasm","Framework":"rust-components","Scenario":"scaling","Iteration":8}
+{"StartTime":"2026-08-06T05:36:34Z","EndTime":"2026-08-06T05:49:35Z","Runtime":"wasm","Framework":"rust-components","Scenario":"scaling","Iteration":9}
+{"StartTime":"2026-08-06T05:50:08Z","EndTime":"2026-08-06T06:03:09Z","Runtime":"wasm","Framework":"rust-components","Scenario":"scaling","Iteration":10}
