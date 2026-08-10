@@ -2738,7 +2738,6 @@ def md_variant_ab():
     concentrated in one database-heavy route. Componentization should be argued for
     cold-start-dominated or independently-scaled workloads, not for this one.
     """)
-
     return
 
 
