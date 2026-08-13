@@ -271,14 +271,30 @@ def target_rank(column: str = "target") -> pl.Expr:
 
 
 @app.function
-def target_color(legend: bool = True, title: str = "Target") -> alt.Color:
-    """Consistent target color/legend encoding for every chart."""
+def target_color(
+    legend: bool = True, title: str = "Target", symbol: str | None = None
+) -> alt.Color:
+    """
+    Consistent target color/legend encoding for every chart.
+
+    In a layered chart only the FIRST layer that encodes color contributes the
+    legend; a `legend=None` there suppresses it for the whole chart even if a
+    later layer asks for one. On a line-with-band chart the band is drawn first,
+    so the legend has to be attached to the band -- `symbol="stroke"` then keeps
+    the swatches looking like the lines they label rather than like the
+    translucent band.
+    """
     return alt.Color(
         "target:N",
         scale=color_scale(),
         sort=TARGET_ORDER,
         title=title,
-        legend=alt.Legend(orient="right") if legend else None,
+        legend=alt.Legend(
+            orient="right",
+            **({"symbolType": symbol, "symbolOpacity": 1, "symbolStrokeWidth": 3} if symbol else {}),
+        )
+        if legend
+        else None,
     )
 
 

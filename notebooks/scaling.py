@@ -130,7 +130,9 @@ def processing_helpers():
     METRIC_LABELS = {
         "rps": ("Throughput", "req/s"),
         "pods": ("Pod Count", "pods"),
-        "cpu_usage": ("CPU Usage", "cores"),
+        # Query is rate(pod_cpu_usage_seconds_total) / count(node_cpu_seconds_total)
+        # * 100, i.e. a share of total node capacity -- NOT a core count.
+        "cpu_usage": ("CPU Usage", "% of node capacity"),
         "memory": ("Memory per Pod", "MB"),
         "p95": ("P95 Latency", "ms"),
         "p99": ("P99 Latency", "ms"),
@@ -825,7 +827,7 @@ def processing_helpers():
             .join(
                 per_pod_and_cluster(df_variants["cpu_usage"], window)
                 .group_by("target")
-                .agg(pl.col("cluster").mean().alias("cpu_cores_cluster")),
+                .agg(pl.col("cluster").mean().alias("cpu_pct_cluster")),
                 on="target",
                 how="left",
             )
@@ -848,7 +850,7 @@ def processing_helpers():
             ("memory_per_pod_mb", "Memory per pod (MB)"),
             ("memory_cluster_mb", "Memory cluster (MB)"),
             ("joules_per_10k_req", "Energy (J / 10k req)"),
-            ("cpu_cores_cluster", "CPU cores (cluster)"),
+            ("cpu_pct_cluster", "CPU (% of node capacity, cluster)"),
         ]
         rows = []
         for col, label in metrics:
@@ -1033,7 +1035,7 @@ def processing_helpers():
             cpu_idle.join(mem_idle, on=["target", "iteration"], how="left")
             .group_by("target")
             .agg([
-                pl.col("cooldown_cpu_mean").mean().alias("idle_cpu_cores_mean"),
+                pl.col("cooldown_cpu_mean").mean().alias("idle_cpu_pct_mean"),
                 pl.col("cooldown_mem_per_pod_mb").mean().alias("idle_mem_mb_mean"),
             ])
             .sort("target")
@@ -1069,8 +1071,8 @@ def processing_helpers():
             per_pod_and_cluster(df_scaling["cpu_usage"], "steady")
             .group_by("target")
             .agg([
-                pl.col("per_pod").mean().alias("cpu_cores_per_pod"),
-                pl.col("cluster").mean().alias("cpu_cores_cluster"),
+                pl.col("per_pod").mean().alias("cpu_pct_per_pod"),
+                pl.col("cluster").mean().alias("cpu_pct_cluster"),
             ])
         )
         pods_steady = _steady_agg("pods", pl.col("value").mean(), "steady_pods")
@@ -1469,9 +1471,15 @@ def chart_helpers(
         """
         Per-iteration distributions across targets: one boxplot column per metric,
         one row per window (peak vs. scale-to-zero).
+
+        Facet order is driven by the explicit integer columns `metric_order` and
+        `window_order` rather than by a list passed to `sort=`. Under the
+        VegaFusion data transformer the list form collapses to a constant sort
+        index for every facet, which silently reorders the rows -- Cooldown was
+        rendering above Steady State while the title said otherwise.
         """
         samples = []
-        for m in metrics:
+        for _i, m in enumerate(metrics):
             per_iter = (
                 window_slice(metric_frame(df_scaling, m))
                 .filter(pl.col("window").is_in(windows))
@@ -1480,11 +1488,19 @@ def chart_helpers(
                 .with_columns([
                     pl.lit(m).alias("metric"),
                     pl.lit(metric_title(m)).alias("metric_label"),
+                    pl.lit(_i).cast(pl.Int32).alias("metric_order"),
                     pl.col("window").replace_strict(WINDOW_LABELS, default=pl.col("window")).alias("window_label"),
+                    pl.col("window")
+                    .replace_strict({w: k for k, w in enumerate(windows)}, default=99)
+                    .cast(pl.Int32)
+                    .alias("window_order"),
                 ])
             )
             samples.append(
-                per_iter.select(["target", "window", "window_label", "iteration", "sample", "metric", "metric_label"])
+                per_iter.select([
+                    "target", "window", "window_label", "window_order",
+                    "iteration", "sample", "metric", "metric_label", "metric_order",
+                ])
             )
 
         combined = pl.concat(samples, how="vertical").sort(target_rank())
@@ -1496,8 +1512,16 @@ def chart_helpers(
                 x=alt.X("sample:Q", title="Per-iteration mean", scale=alt.Scale(zero=False)),
                 y=alt.Y("target:N", title=None, sort=TARGET_ORDER),
                 color=target_color(),
-                column=alt.Column("metric_label:N", title=None, sort=[metric_title(m) for m in metrics]),
-                row=alt.Row("window_label:N", title=None, sort=[WINDOW_LABELS[w] for w in windows]),
+                column=alt.Column(
+                    "metric_label:N",
+                    title=None,
+                    sort=alt.EncodingSortField(field="metric_order", op="min", order="ascending"),
+                ),
+                row=alt.Row(
+                    "window_label:N",
+                    title=None,
+                    sort=alt.EncodingSortField(field="window_order", op="min", order="ascending"),
+                ),
                 tooltip=[
                     alt.Tooltip("target:N", title="Target"),
                     alt.Tooltip("sample:Q", title="Value", format=".2f"),
@@ -1693,6 +1717,25 @@ def chart_helpers(
             frontier=frontier,
             x_err="rps",
             y_err="requests_per_joule",
+        )
+
+
+    def make_memory_energy_scatter(df_scaling: dict, window: str = "steady") -> alt.Chart:
+        """
+        Memory footprint against energy cost. The two are argued in the thesis to
+        be independent axes rather than two views of "efficiency"; this is the
+        figure that shows it. Over the six targets the rank correlation between
+        memory per pod and joules per 10k requests is about +0.2, i.e. none.
+        """
+        _, summary = build_efficiency_frame(df_scaling, window)
+        return _labeled_scatter(
+            summary,
+            x="memory_per_pod_mb",
+            y="joules_per_10k_requests",
+            x_title="Memory per replica (MB)",
+            y_title="Energy per 10 000 requests (J)",
+            title=f"Memory footprint vs. energy cost - {WINDOW_LABELS[window]}",
+            subtitle="Bottom-left is better on both. The two axes do not order the targets alike",
         )
 
 
@@ -1960,6 +2003,10 @@ def chart_helpers(
                     "subtitle": "Request rate x P95 per route, normalized per target",
                 },
             )
+            # The route names are long; without extra padding the legend is clipped
+            # at the right edge when the chart is exported to SVG.
+            .configure_view(continuousWidth=430)
+            .configure_legend(labelLimit=0, padding=10, offset=16)
         )
 
 
@@ -2021,6 +2068,7 @@ def chart_helpers(
         make_efficiency_scatter,
         make_energy_efficiency_chart,
         make_energy_latency_scatter,
+        make_memory_energy_scatter,
         make_peak_boxplots,
         make_rapl_energy_chart,
         make_request_mix_donut,
@@ -2107,9 +2155,9 @@ def md_windowed():
     **Throughput is stable once scaled.** Steady-state RPS has a run-to-run sd of
     4.7-16.3 req/s on the container targets (1-3 % of the mean), so the throughput
     ranking is not an artefact of a lucky iteration. `wasm-js` is the exception at
-    9.5 on a mean of 15.7 - a 60 % coefficient of variation. The Scale-Up window is
-    where runs disagree most (`wasm-js` sd 19.8, `oci-spring` 18.2): that is HPA
-    reaction timing, not steady capacity.
+    10.1 on a mean of 19.6 - a 52 % coefficient of variation. The Scale-Up window is
+    where runs disagree most (`oci-node` sd 23.8, `wasm-js` 21.5, `oci-native` 19.5,
+    `oci-spring` 18.1): that is HPA reaction timing, not steady capacity.
 
     **Cooldown throughput stays high.** With KEDA scaling on concurrency, traffic is
     still balanced across the replicas as VUs ramp down: 281.6 req/s for `oci-spring`
@@ -2174,15 +2222,24 @@ def md_scale_up():
     Per-iteration peak p95, worst check rate, replica high-water mark and the time
     until KEDA first adds a replica.
 
-    **Cold-start latency cost is negligible for the container targets** — the peak
-    p95 during the initial ramp is 0.75-2.01 ms, i.e. barely above their steady-state
-    p95, so no target pays a visible first-request penalty. `wasm-js` again is the
-    outlier at **51.2 ms peak p95**, 25x its nearest neighbour.
+    **Cold-start latency cost is negligible for the container targets** - the peak
+    p95 during the initial ramp is 0.75-1.69 ms (`oci-native` 0.75, `oci-axum` 1.34,
+    `oci-node` 1.53, `oci-spring` 1.69), i.e. barely above their steady-state p95, so
+    no target pays a visible first-request penalty. `wasm-rust` sits just above them
+    at 2.01 ms. `wasm-js` again is the outlier at **51.2 ms peak p95**, 25x its
+    nearest neighbour.
 
-    **First scale-up fires after 29-48 s** on all targets: `oci-spring` reacts
-    fastest (29.2 s) and `oci-native` slowest (48.1 s). Since KEDA scales on
-    concurrency = 20, the targets that saturate a worker soonest trigger earliest —
-    this measures request-holding time, not platform startup speed.
+    **Time to first scale-up is about 18 s, and the per-target means do not rank the
+    targets.** The mean column spans 29.2 s (`oci-spring`) to 48.1 s (`oci-native`),
+    but it averages only the iterations that started below their target replica
+    count - 27 scale events across all 60 runs, as few as 2 for `wasm-js` and 3 for
+    `oci-axum` / `oci-native` - and every target has one slow outlier dragging its
+    mean up (94.6 s `oci-axum`, 112.4 s `oci-native`, 128.6 s `wasm-rust`, 142.6 s
+    `oci-spring`). The medians are flat: 16.4-18.6 s for all five non-`wasm-js`
+    targets, 17.6 s overall. Read this as "KEDA reacts within roughly 15-20 s once it
+    has to", not as a between-target ranking. Since KEDA scales on concurrency = 20,
+    the targets that saturate a worker soonest trigger earliest - this measures
+    request-holding time, not platform startup speed.
     """)
     return
 
@@ -2208,7 +2265,7 @@ def md_master():
     **Throughput splits the field into two groups.** The four container targets
     deliver 304-526 req/s (`oci-spring` highest at 526.5, `oci-native` 417.3), while
     the WebAssembly targets deliver far less: `wasm-rust` 145.7 req/s and `wasm-js`
-    15.7 req/s - a **33.5x gap** between best and worst.
+    19.6 req/s - a **26.9x gap** between best and worst.
 
     **Latency follows throughput.** Steady p95 runs 1.06-1.97 ms for the container
     targets and 3.50 ms for `wasm-rust`; `wasm-js` sits at **19.2 ms p95 / 32.6 ms
@@ -2247,7 +2304,7 @@ def md_ts_rps():
     Mean across the 10 iterations with a +/-1 sd band, summed over all seven routes;
     shaded regions mark the load stages. The step at each VU increase is visible for
     the container targets but not for `wasm-js`, which is already saturated during
-    the first ramp: 70.3 -> 83.0 -> 15.7 req/s across Scale-Up, Ramp-Up and Steady
+    the first ramp: 68.6 -> 83.0 -> 19.6 req/s across Scale-Up, Ramp-Up and Steady
     State, i.e. it *loses* four fifths of its throughput once the load reaches
     100 VUs.
     """)
@@ -2286,11 +2343,12 @@ def md_ts_cpu():
     mo.md(r"""
     ### CPU usage over time
 
-    Per-replica cores. `oci-native` (10.98) and `oci-spring` (9.65) are the heaviest
-    under peak load, `oci-axum` the lightest at 2.75. Note the ordering differs from
-    the energy ranking: `oci-spring` burns comparable CPU to `oci-native` but
-    converts it into 26 % more throughput, which is why its joules-per-request is
-    lower.
+    Per-replica CPU as a share of total node capacity (percent), not cores: the
+    query divides the pod CPU-time rate by the node's logical CPU count.
+    `oci-native` (10.98 %) and `oci-spring` (9.65 %) are the heaviest under peak
+    load, `oci-axum` the lightest at 2.75 %. Note the ordering differs from the
+    energy ranking: `oci-spring` burns comparable CPU to `oci-native` but converts
+    it into 26 % more throughput, which is why its joules-per-request is lower.
     """)
     return
 
@@ -2333,16 +2391,16 @@ def md_route_latency():
     `oci-node` (94.6 %), `oci-native` (87.7 %) and `oci-spring` (87.2 %), and 93.5 %
     on `wasm-rust`. Its steady p95 is 1.43 ms (`oci-spring`) to 4.71 ms
     (`wasm-rust`), while every other route on those targets sits between 0.016 and
-    0.31 ms. Service-time share is request rate x p95, so this combines the route's
+    0.26 ms. Service-time share is request rate x p95, so this combines the route's
     30 % traffic weight with its cost - a slow route called rarely would not show up
     here.
 
     **The endpoint we designed as "expensive" is not the expensive one.** The
     `aggregate` category (`/match/result-table`, a full result-table query) resolves
-    in 0.11-0.31 ms on every target and accounts for only 4-7 % of service time. The
-    scenario's cost is concentrated in the `lookup` category instead. That is worth
-    stating explicitly in the thesis: the weighting was designed on expected query
-    cost, and the measurement disagrees.
+    in 0.11-0.26 ms on all five of those targets and accounts for only 4-7 % of
+    service time. The scenario's cost is concentrated in the `lookup` category
+    instead. That is worth stating explicitly in the thesis: the weighting was
+    designed on expected query cost, and the measurement disagrees.
 
     **`wasm-js` is a different animal entirely.** Its 19.2 ms aggregate p95 is not
     uniform slowness - it is one route. `/teams/record/:id` takes **30.9 ms** and
@@ -2355,7 +2413,7 @@ def md_route_latency():
     **On trivial routes the runtimes converge.** For the three `simple` key lookups,
     `oci-axum` (0.016-0.026 ms) and `oci-node` (0.020-0.031 ms) lead, but
     `wasm-rust` (0.059-0.073 ms) is in the same band as `oci-spring` (0.068-0.074)
-    and `oci-native` (0.077-0.091). The Wasm penalty is not a fixed per-request
+    and `oci-native` (0.077-0.086). The Wasm penalty is not a fixed per-request
     overhead that shows up everywhere - it appears specifically on the
     database-heavy lookup, where `wasm-rust` is the slowest target in the field.
     """)
@@ -2436,12 +2494,12 @@ def md_boxplots():
     mo.md(r"""
     ## Steady State vs. Cooldown distributions
 
-    Each box is 10 points — one per iteration — so the spread is run-to-run
+    Each box is 10 points - one per iteration - so the spread is run-to-run
     reproducibility.
 
-    **Latency:** every container target is tight in both windows (p95 sd ≤ 0.18 ms).
-    `wasm-js` is the exception in both: 19.2 ms ± 5.8 in steady state, and still
-    17.4 ms ± 15.1 during Cooldown with one run reaching 53.5 ms — it does not
+    **Latency:** every container target is tight in both windows (p95 sd <= 0.18 ms).
+    `wasm-js` is the exception in both: 19.2 ms +/- 5.8 in steady state, and still
+    17.4 ms +/- 15.1 during Cooldown with one run reaching 53.5 ms - it does not
     recover when the load drops, which points at a queue that never drains rather
     than at instantaneous capacity.
 
@@ -2449,10 +2507,10 @@ def md_boxplots():
     167.9 to 360.8 MB), consistent with GC heap growth varying by run. `oci-axum`
     (sd 0.70 MB) and `wasm-rust` (sd 2.01 MB) are essentially deterministic.
 
-    **Pods:** `oci-axum`, `oci-node` and `wasm-js` hold a fixed replica count in
-    every run; `oci-spring` (4.43 ± 0.48) and `oci-native` (4.89 ± 0.21) oscillate
-    around the KEDA threshold, so they occasionally serve peak load with one replica
-    fewer.
+    **Pods:** `oci-axum` and `oci-node` hold exactly 5 replicas in every run (sd 0)
+    and `wasm-js` is near-fixed at 6.75 +/- 0.12; `oci-spring` (4.43 +/- 0.48) and
+    `oci-native` (4.89 +/- 0.21) oscillate around the KEDA threshold, so they
+    occasionally serve peak load with one replica fewer.
     """)
     return
 
@@ -2485,7 +2543,7 @@ def md_efficiency_scatter():
     - Both Wasm targets sit in the worst quadrant: `wasm-rust` is the most expensive
       per request in the field (4 564 J/10k, 2.19 requests per joule - **4.8x**
       `oci-axum`'s cost) and `wasm-js` combines the second-worst cost (4 320 J/10k)
-      with the lowest throughput (15.7 req/s).
+      with the lowest throughput (19.6 req/s).
 
     **Energy does not buy latency.** In the cost-vs-responsiveness plot the frontier
     runs `oci-axum` -> `oci-node` -> `oci-spring`: paying more per request does move
@@ -2523,16 +2581,19 @@ def efficiency_scatters(
     chart_efficiency_scatter = make_efficiency_scatter(df_scaling)
     chart_work_per_joule = make_work_per_joule_scatter(df_scaling)
     chart_energy_latency = make_energy_latency_scatter(df_scaling)
+    chart_memory_energy = make_memory_energy_scatter(df_scaling)
     chart_efficiency_runs = make_efficiency_iteration_scatter(df_scaling)
 
     mo.vstack([
         mo.hstack([chart_efficiency_scatter, chart_work_per_joule], justify="start"),
         mo.hstack([chart_energy_latency, chart_efficiency_runs], justify="start"),
+        mo.hstack([chart_memory_energy], justify="start"),
     ])
     return (
         chart_efficiency_runs,
         chart_efficiency_scatter,
         chart_energy_latency,
+        chart_memory_energy,
         chart_work_per_joule,
         df_efficiency,
         df_efficiency_runs,
@@ -2555,8 +2616,8 @@ def md_cooldown():
     Idle footprint per replica ranges from **17.0 MB** (`oci-axum`) and 29.8 MB
     (`wasm-rust`) to 218.6 MB (`wasm-js`) and **691.0 MB** (`oci-spring`) — a 41x
     spread that translates directly into how many idle replicas fit on a node.
-    Idle CPU orders differently: `wasm-js` is lowest at 1.23 cores (it has little
-    left to do), `oci-native` highest at 7.58.
+    Idle CPU orders differently: `wasm-js` is lowest at 1.23 % of node capacity
+    (it has little left to do), `oci-native` highest at 7.58 %.
     """)
     return
 
@@ -2582,36 +2643,51 @@ def request_outcomes_view(df_request_outcomes, df_scale_to_zero):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Based on your benchmark data, `df_cooldown_idle` measures the **idle resource footprint** (CPU and RAM baseline consumption) of each application runtime during the **cooldown phase** (typically after load has dropped back down to zero).
+    `df_cooldown_idle` reports the CPU and RAM footprint each runtime **retains at
+    the end of the run** (the 660-780 s window), per replica.
 
-    Because these applications are sitting idle with minimal to no active HTTP traffic, these metrics isolate the **fixed runtime overhead** required just to keep the service running in Kubernetes.
+    The `idle_` prefix is a misnomer worth flagging: the VUs ramp to zero across this
+    window, but KEDA's scale-down has not fired yet and traffic is still being
+    served - 281.6 req/s (`oci-spring`), 216.0 (`oci-native`), 170.7 (`oci-axum`),
+    84.9 (`oci-node`) and 77.3 (`wasm-rust`); only `wasm-js` is genuinely quiet at
+    4.9 req/s. So the memory column is a fair read of retained footprint (it is
+    within a few MB of the steady-state value on every target except `oci-native`),
+    but the CPU column is *not* a baseline overhead measurement - it still contains
+    real request work. Isolating true idle draw needs a capture that extends past
+    KEDA's scale-down delay.
 
     ---
 
-    ### 📊 Metric Definitions
+    ### Metric definitions
 
-    * **`idle_cpu_cores_mean`**: Average CPU capacity consumed while idle (expressed in milli-cores or percentage points depending on your Prometheus scraper scale).
-    * **`idle_mem_mb_mean`**: Baseline Resident Set Size (RSS) memory consumption in Megabytes (MB) per runtime while idle.
+    * **`idle_cpu_pct_mean`**: mean CPU over the window, as a percentage of total
+      node capacity (the query divides the pod CPU-time rate by the node's logical
+      CPU count).
+    * **`idle_mem_mb_mean`**: mean resident memory in MB per replica over the window.
 
     ---
 
-    ### 🔎 Key Insights from Your Results
+    ### What the numbers say
 
-    | Runtime Baseline Comparison | Key Takeaway |
+    | Comparison | Takeaway |
     | --- | --- |
-    | **Lowest Memory Footprint** | **`oci-axum` (~17.0 MB)** and **`wasm-rust` (~29.8 MB)** maintain an exceptionally tiny baseline memory presence due to compiled, garbage-collector-free binaries. |
-    | **Highest Memory Footprint** | **`oci-spring` (~691.0 MB)** requires significantly more baseline RAM due to the JVM process overhead, class-loading, and garbage collection framework heaps. |
-    | **Lowest CPU Overhead** | **`wasm-js` (~1.22 cores)** and **`oci-axum` (~2.18 cores)** consume the least background CPU idle cycles. |
-    | **Highest CPU Overhead** | **`oci-native` (~7.58 cores)** shows higher background CPU usage, which often points to active GC thread polling or runtime runtime maintenance loops while waiting for incoming connections. |
+    | **Lowest retained memory** | `oci-axum` (17.0 MB) and `wasm-rust` (29.8 MB) - compiled, GC-free binaries with no runtime heap to hold on to. |
+    | **Highest retained memory** | `oci-spring` (691.0 MB), essentially unchanged from its 690.7 MB steady-state figure: the JVM does not give the heap back. |
+    | **Memory that *does* fall back** | `oci-native` drops 206.9 -> 152.4 MB, the only target where end-of-run footprint is materially below its steady-state value. |
+    | **CPU** | `wasm-js` is lowest at 1.23 %, but only because it is serving 4.9 req/s; `oci-native` is highest at 7.58 % while still serving 216 req/s. These are not comparable as idle costs. |
 
     ---
 
-    ### 💡 How to use this in your Benchmark Report
+    ### How to use this in the report
 
-    Use `df_cooldown_idle` to highlight **density and cost efficiency**:
+    **Node density.** The memory column supports the density argument directly:
+    `oci-axum` or `wasm-rust` fit roughly 20-40x more retained replicas on a node
+    than `oci-spring`. That matters in an auto-scaling setup where replicas outlive
+    the traffic that created them - which is exactly what this window shows.
 
-    1. **Node Density:** Runtimes like `axum` or `wasm-rust` allow you to pack **10x to 40x more idle container replicas** on a single cloud server compared to heavy Java/JVM stacks (`oci-spring`).
-    2. **Cold Start & Baseline Costs:** In auto-scaling microservices (like Knative or KEDA), high idle resource baselines drive up cloud infrastructure bills even when traffic is low.
+    **Do not use it for cold-start or true-idle cost.** Neither is measured here; the
+    scale-up section covers reaction time, and a genuine idle baseline would need a
+    longer capture.
     """)
     return
 
@@ -2710,12 +2786,15 @@ def md_variant_ab():
 
     **Nothing the aggregate metric can see moves.** Steady p95 is 3.497 ms
     monolithic vs 3.656 ms componentized - a +4.6 % shift inside a 0.295 ms noise
-    band. The three heavier routes are all inside their bands too, including
-    `/match/team/:id` (-1.6 %, band 1.22 ms). Because that one route owns 94 % of
-    service time, savings of 8-32 microseconds on the cheap routes cannot surface in
-    the total. Throughput (145.8 vs 143.2 req/s, band 2.80) and replica count
-    (6.22 vs 6.11, band 0.58) are likewise unchanged, and both builds hold a perfect
-    check rate.
+    band. The other three routes stay inside their bands too, but not all in the
+    same direction: `/match/team/:id` (-1.6 %, band 1.22 ms), `/match/result-table`
+    (+6.1 %, band 0.029 ms) and `/match/:id` (+6.0 %, band 0.0050 ms) - the last two
+    move the *wrong* way, and `/match/:id` falls short of significance by only 13 %
+    of its band, so the gain on the small routes is not uniform. Because
+    `/match/team/:id` owns 94 % of service time, savings of 7-32 microseconds on the
+    cheap routes cannot surface in the total. Throughput (145.8 vs 143.2 req/s, band
+    2.80) and replica count (6.22 vs 6.11, band 0.58) are likewise unchanged, and
+    both builds hold a perfect check rate.
 
     **Energy is a wash.** 4564 vs 4659 J per 10k requests, a +2.1 % difference
     against a 101 J noise band - the closest call in the table, and it lands just
@@ -2762,7 +2841,6 @@ def variant_ab(
         ]),
         df_variant_summary,
     ])
-
     return (
         chart_variant_routes,
         df_variant_deltas,
@@ -2820,6 +2898,7 @@ def export_figures(
             "scaling_efficiency_scatter": chart_efficiency_scatter,
             "scaling_work_per_joule_scatter": chart_work_per_joule,
             "scaling_energy_latency_scatter": chart_energy_latency,
+        "scaling_memory_energy_scatter": chart_memory_energy,
             "scaling_efficiency_runs_scatter": chart_efficiency_runs,
             "scaling_request_mix": chart_request_mix,
             "scaling_request_mix_validation": chart_request_mix_validation,

@@ -233,17 +233,38 @@ def processing_helpers():
         )
 
 
+    # Share of each idle capture discarded before averaging. The idle scenario
+    # starts about 15 s after the deployment is applied, so the head of every
+    # capture is the pod finishing start-up - class loading, pool initialisation,
+    # framework boot - and not idle draw at all. Measured over the full capture,
+    # five of six targets accumulate 90-99 % of their energy in the first fifth and
+    # then flatline, which inflates the reported figure by one to two orders of
+    # magnitude and scrambles the ordering between targets.
+    #
+    # 0.2 of a ten-minute capture drops two minutes and leaves eight. The exact
+    # cutoff does not drive the result: 0.10, 0.20, 0.33 and 0.50 agree to within a
+    # few per cent on every target, which is the check that justifies picking one.
+    IDLE_WARMUP_FRACTION = 0.2
+
+
     def process_idle_power(df_idle: dict) -> pl.DataFrame:
         """
         Baseline power draw of an idle pod (no traffic), in watts. Used to separate
         fixed runtime overhead from the dynamic cost of serving requests.
+
+        The start-up head of each capture is discarded; see IDLE_WARMUP_FRACTION.
         """
+        _increments = pod_joules_increments(df_idle["pod_joules"])
+        _spans = _increments.group_by(["target", "iteration"]).agg(
+            pl.col("normalized_time").max().alias("_span_s")
+        )
         per_iter = (
-            pod_joules_increments(df_idle["pod_joules"])
+            _increments.join(_spans, on=["target", "iteration"], how="left")
+            .filter(pl.col("normalized_time") > pl.col("_span_s") * IDLE_WARMUP_FRACTION)
             .group_by(["target", "iteration"])
             .agg([
                 pl.col("total").sum().alias("idle_joules"),
-                pl.col("normalized_time").max().alias("idle_duration_s"),
+                (pl.col("normalized_time").max() - pl.col("normalized_time").min()).alias("idle_duration_s"),
             ])
             .with_columns(
                 (pl.col("idle_joules") / pl.col("idle_duration_s")).alias("idle_power_w")
@@ -593,9 +614,12 @@ def chart_helpers(
                 "joules:Q",
                 title="Energy per run (J)" + (" - log scale" if x_log else ""),
                 stack=False if grouped else "zero",
-                scale=alt.Scale(type="log", nice=False) if x_log else alt.Scale(),
+                # domainMin must sit BELOW the smallest value (oci-axum DRAM, 85 J).
+                # On a log axis a bar is drawn from the domain minimum, so the
+                # smallest value would otherwise have zero length and vanish.
+                scale=alt.Scale(type="log", nice=False, domainMin=50) if x_log else alt.Scale(),
                 # Explicit decade ticks: the default log ticks collide at this width.
-                axis=alt.Axis(values=[100, 300, 1000, 3000, 10000, 30000], format=",")
+                axis=alt.Axis(values=[50, 100, 300, 1000, 3000, 10000, 30000], format=",")
                 if x_log
                 else alt.Axis(format=","),
             ),
@@ -963,6 +987,7 @@ def chart_helpers(
         y_err: bool = False,
         width: int = 420,
         height: int = 320,
+        legend: bool = True,
     ) -> alt.Chart:
         """Shared scaffold: labeled point per target, median quadrant guides,
         optional +/-1 sd whiskers and a Pareto frontier line."""
@@ -1009,7 +1034,7 @@ def chart_helpers(
         points = base.mark_point(size=160, filled=True, opacity=0.95).encode(
             x=x_enc,
             y=y_enc,
-            color=target_color(),
+            color=target_color(legend=legend),
             tooltip=[
                 alt.Tooltip("target:N", title="Target"),
                 alt.Tooltip(f"{x}:Q", title=x_title, format=",.2f"),
@@ -1085,6 +1110,9 @@ def chart_helpers(
             x_log=True,
             y_log=True,
             frontier=frontier,
+            # Every point already carries its target as a text label, and with the
+            # two Wasm points sitting at the right edge the legend overlapped them.
+            legend=False,
         )
 
 
@@ -1181,9 +1209,10 @@ def md_summary():
     Every target served the identical 100 000 heavy requests from a single pod, so
     these columns compare like for like.
 
-    **Completion time spans 5x.** `oci-spring` finishes in 61.2 s and `oci-axum` in
-    77.2 s, while `wasm-js` needs 225.8 s, `wasm-rust` 259.9 s and `oci-node` 304.3 s -
-    effective throughput of 1 634 req/s down to 329 req/s.
+    **Completion time spans 5x.** `oci-spring` finishes in 61.2 s, `oci-axum` in
+    77.2 s and `oci-native` in 84.5 s, while `wasm-js` needs 225.8 s, `wasm-rust`
+    259.9 s and `oci-node` 304.3 s - effective throughput of 1 634 req/s down to
+    329 req/s.
 
     **Energy spans 25x, and it does not follow speed.** `oci-node` is the *slowest*
     target yet spends the least energy (919 J), because it draws only 3.0 W while
@@ -1191,9 +1220,13 @@ def md_summary():
     energy for the same work. Ranking by joules per run: `oci-node` 919, `oci-axum`
     1 288, `oci-spring` 2 409, `oci-native` 4 144, `wasm-rust` 15 091, `wasm-js` 23 126.
 
-    **Latency tracks completion time**, as expected with a fixed VU count: p95 runs
-    25.3 ms (`oci-spring`), 32.7 ms (`oci-axum`), 37.2 ms (`oci-native`), 88.0 ms
-    (`wasm-js`), 128.8 ms (`oci-node`) and 152.9 ms (`wasm-rust`).
+    **Latency broadly tracks completion time**, as expected with a fixed VU count:
+    p95 runs 25.3 ms (`oci-spring`), 32.7 ms (`oci-axum`), 37.2 ms (`oci-native`),
+    88.0 ms (`wasm-js`), 128.8 ms (`oci-node`) and 152.9 ms (`wasm-rust`). The one
+    inversion is at the slow end: `oci-node` takes the longest overall (304 s against
+    `wasm-rust`'s 260 s) but has the *lower* p95 of the two. Duration follows mean
+    latency - 97 ms for `oci-node` against 83 ms for `wasm-rust` at 32 VUs - and
+    `wasm-rust` carries the heavier tail on top of that.
 
     **Idle draw is negligible here.** The idle scenario puts every runtime between
     0.004 W (`wasm-js`) and 0.35 W (`oci-spring`), so idle overhead accounts for at
@@ -1204,7 +1237,7 @@ def md_summary():
     Compared with the scaling scenario, where mixed light routes across several
     replicas put the container targets within ~4x of each other, this compute-heavy
     single-pod workload separates the runtimes far more sharply: the WebAssembly
-    targets pay 12-25x `oci-node`'s energy for identical work.
+    targets pay 16-25x `oci-node`'s energy for identical work.
     """)
     return
 
@@ -1279,18 +1312,19 @@ def md_timeseries():
 
     **Throughput is flat from the first sample.** Comparing the warm-up phase (first
     10 % of a run) with the steady remainder, throughput moves by at most 3.3 %
-    (`oci-axum`) and under 1.2 % everywhere else. A single fixed pod at 32 VUs is
-    saturated immediately - there is no ramp to wait out, which is what makes the
-    whole-run averages trustworthy.
+    (`oci-axum`) and by 1.2 % or less on every other target. A single fixed pod at
+    32 VUs is saturated immediately - there is no ramp to wait out, which is what
+    makes the whole-run averages trustworthy.
 
     **Warm-up is not what separates the targets.** Only the fast container targets
     show the classic warm-up penalty, and it is small: p95 in the first 10 % is 8.9 %
     higher than steady on `oci-axum`, 2.8 % on `oci-native`, 0.3 % on `oci-spring`.
-    The slow targets show the *opposite* - `wasm-js` is 29.6 % faster during warm-up
-    and `wasm-rust` 9.5 % - which is queueing, not warming: with all 32 VUs released
-    at once, latency on a saturated runtime climbs as the request backlog builds and
-    then holds. Either way the ranking is set within the first few seconds and never
-    changes, so it reflects the runtime rather than a transient.
+    All three slow targets show the *opposite* - `wasm-js` is 29.6 % faster during
+    warm-up, `wasm-rust` 9.5 % and `oci-node` 5.5 % - which is queueing, not warming:
+    with all 32 VUs released at once, latency on a saturated runtime climbs as the
+    request backlog builds and then holds. Either way the ranking is set within the
+    first few seconds and never changes, so it reflects the runtime rather than a
+    transient.
 
     `df_baseline_phases` holds the warm-up/steady/overall breakdown for every metric
     with the exact numbers.
@@ -1333,7 +1367,6 @@ def md_energy():
     top-right - slow *and* power-hungry, which is how it accumulates the largest
     energy bill in the field.
     """)
-
     return
 
 
@@ -1377,9 +1410,10 @@ def md_scatter():
 
     Those two, plus `oci-spring` (fastest overall at 61.2 s), are the only targets on
     the Pareto frontier of throughput vs. energy cost. Everything else is dominated:
-    `oci-native` spends 3.2x `oci-node`'s energy while finishing slower than
-    `oci-spring`, and both Wasm targets are beaten on both axes at once - `wasm-rust`
-    pays 16x `oci-node`'s energy and is still 4x slower than `oci-spring`.
+    `oci-native` is beaten outright by `oci-axum`, which is faster (84.5 s -> 77.2 s)
+    *and* spends 3.2x less energy - 4 144 J against 1 288 J, or 4.5x `oci-node`'s
+    919 J. Both Wasm targets are beaten on both axes at once - `wasm-rust` pays 16x
+    `oci-node`'s energy and is still 4x slower than `oci-spring`.
 
     The per-run scatter shows the ranking is not noise: run-to-run spread in duration
     is under 5 s for every target (sd 0.36-4.97 s), and the energy clusters do not
@@ -1422,16 +1456,37 @@ def md_idle():
     mo.md(r"""
     ## Idle scenario: what a pod costs doing nothing
 
-    Ten minutes with no traffic, measuring only the runtime's resting draw. The
-    absolute numbers are small - 0.004 W (`wasm-js`) to 0.35 W (`oci-spring`), a
-    ~88x spread - and at these magnitudes idle draw is irrelevant to the benchmark
-    above: it accounts for about 1.2 % of the longest run (`oci-node`) and well under
-    1 % of every other.
+    Ten minutes with no traffic, measuring only the runtime's resting draw. **The
+    first two minutes of each capture are discarded**: the scenario begins about 15 s
+    after the deployment is applied, so the head of every capture is the pod
+    finishing start-up rather than idling. Over the full capture five of six targets
+    accumulate 90-99 % of their energy in the first fifth and then flatline, which
+    inflates the figure by one to two orders of magnitude and scrambles the ordering.
+    The cutoff itself does not drive the result - 10 %, 20 %, 33 % and 50 % agree to
+    within a few per cent on every target.
 
-    It matters for a different question: a service that spends most of its life idle
-    pays this continuously. `oci-spring`'s 0.35 W is 88x `wasm-js`'s resting draw,
-    which inverts the ranking of the loaded benchmark - the runtime with the worst
-    energy under load is the cheapest at rest.
+    Measured over the remaining eight minutes the resting draws are:
+
+    | target | idle (W) |
+    | --- | --- |
+    | `oci-axum` | 0.0012 |
+    | `wasm-rust` | 0.0027 |
+    | `wasm-js` | 0.0043 |
+    | `oci-node` | 0.0048 |
+    | `oci-native` | 0.0090 |
+    | `oci-spring` | 0.0173 |
+
+    The ordering is what the runtimes' architectures predict: a compiled Rust binary
+    with no managed runtime is quietest, the two Wasm components next, then the
+    Node.js event loop, then GraalVM, and the JVM with its GC threads is dearest at
+    14x the cheapest. All six are negligible against the loaded benchmark, where they
+    account for 0.004-0.16 % of a run.
+
+    Note what this does **not** show. The resting ranking does not invert the loaded
+    one: `oci-axum` is both the cheapest at rest and on the loaded Pareto frontier.
+    Idle draw is therefore not a lever that rescues WebAssembly at low duty cycle -
+    see `breakeven.py`, where the crossings fall below 0.11 req/s and `oci-axum` is
+    never overtaken at all.
     """)
     return
 

@@ -26,7 +26,6 @@ with app.setup:
     )
 
 
-
 @app.cell
 def md_intro():
     mo.md(r"""
@@ -76,7 +75,6 @@ def load_coldstart():
     select_columns = ["status"]
     df_metrics = load_scenario_metrics("coldstart", select_columns=select_columns)
     df_metrics
-
     return (df_metrics,)
 
 
@@ -85,7 +83,6 @@ def load_idle():
     # Idle reference: node with ZERO application pods deployed
     df_idle_metrics = load_scenario_metrics("idle-scaled", select_columns=["all"])
     df_idle_metrics
-
     return (df_idle_metrics,)
 
 
@@ -719,7 +716,12 @@ def chart_helpers():
             height=210,
             title={
                 "text": "Energy cost of one cold start",
-                "subtitle": "Bars = mean of 30 runs with 95 % CI. Grey band = 95 % noise range of a SINGLE measurement, dashed line = resolution limit of the 30-run mean",
+                # Two lines: as a single string the subtitle set the chart width and
+                # left the plot itself stranded in the left half of the image.
+                "subtitle": [
+                    "Bars = mean of 30 runs with 95 % CI. Grey band = 95 % noise range",
+                    "of a SINGLE measurement, dashed line = resolution limit of the 30-run mean",
+                ],
             },
         )
 
@@ -768,12 +770,14 @@ def chart_helpers():
             scale=alt.Scale(type="log", nice=False) if y_log else alt.Scale(zero=False),
         )
 
+        # The band is the first layer to encode colour, so it is the one that has to
+        # carry the legend; see target_color().
         band = base.mark_area(opacity=0.15).encode(
             x=x, y=alt.Y("band_lower:Q", title="Cumulative energy above idle (J)"), y2="band_upper:Q",
-            color=target_color(legend=False),
+            color=target_color(symbol="stroke"),
         )
         line = base.mark_line(strokeWidth=1.8).encode(
-            x=x, y=y, color=target_color(),
+            x=x, y=y, color=target_color(legend=False),
             tooltip=[
                 alt.Tooltip("target:N", title="Target"),
                 alt.Tooltip("t_bin:Q", title="t (s)", format=".1f"),
@@ -829,16 +833,18 @@ def chart_helpers():
         base = alt.Chart(df_plot)
         x = alt.X("t_bin:Q", title="Time since request (s)", scale=alt.Scale(nice=False))
 
+        # The band is the first layer to encode colour, so it is the one that has to
+        # carry the legend; see target_color().
         band = base.mark_area(opacity=0.15).encode(
             x=x,
             y=alt.Y("band_lower:Q", title="Node power (W)", scale=alt.Scale(zero=False)),
             y2="band_upper:Q",
-            color=target_color(legend=False),
+            color=target_color(symbol="stroke"),
         )
         line = base.mark_line(strokeWidth=1.7).encode(
             x=x,
             y=alt.Y("power_mean_w:Q", title="Node power (W)", scale=alt.Scale(zero=False)),
-            color=target_color(),
+            color=target_color(legend=False),
             tooltip=[
                 alt.Tooltip("target:N", title="Target"),
                 alt.Tooltip("t_bin:Q", title="t (s)", format=".1f"),
@@ -1020,7 +1026,6 @@ def analysis(
               f"Noise floor: sd **{noise['noise_sd_j']:.1f} J** per single measurement, "
               f"resolution of the 30-run mean **{noise['mean_2se_j']:.1f} J**."),
     ])
-
     return (
         df_coldstart_energy,
         df_coldstart_summary,
@@ -1069,7 +1074,6 @@ def charts(
     chart_power_timeline = make_power_timeline_chart(df_power_timeline, df_idle_baseline)
     chart_time_energy = make_time_energy_scatter(df_coldstart_summary, df_coldstart_energy)
     chart_noise = make_noise_chart(df_noise, df_coldstart_summary, noise)
-
     return (
         chart_duration,
         chart_duration_dist,
@@ -1095,11 +1099,21 @@ def md_time():
     next slowest, which is the JVM paying for class loading and context
     initialization before it can answer at all.
 
-    The distributions matter as much as the means:
+    **The durations are quantized by k6's histogram buckets**, which limits how far
+    the spreads can be read. `histogram_quantile` over `vmrange` returns a bucket
+    edge, and the buckets are about 9 % wide in relative terms, so across 30 runs
+    each target lands on only 5-9 distinct values (`oci-axum` and `oci-spring`: 5).
+    Variation narrower than one bucket is invisible. With that caveat:
 
-    * `oci-spring` is slow but *predictable* (sd 0.37 s, the tightest in the field).
-    * `wasm-js` is the least predictable (sd 1.36 s, runs from 1.5 s to 9.5 s) - its
-      ECDF has a long tail, so a user's experience of it varies wildly.
+    * `oci-spring` has the smallest absolute spread (sd 0.37 s), but at 3.9 % of its
+      mean that is *below* one bucket width - its run-to-run variation sits at or
+      under the measurement resolution, so "predictable" is as much a statement about
+      the instrument as about the JVM.
+    * `wasm-js` is genuinely the least predictable (sd 1.36 s, 48 % of its mean, cold
+      runs from 1.83 s to 9.47 s) - its ECDF has a long tail, so a user's experience
+      of it varies wildly. That spread is many buckets wide and therefore real.
+    * the other four targets sit at 15-19 % relative sd, roughly two bucket widths -
+      resolvable, but not finely.
     * `wasm-rust` combines the fastest mean with a tight spread (sd 0.39 s), making
       it the best target on this axis by both measures.
 
@@ -1118,7 +1132,6 @@ def view_time(chart_duration, chart_duration_dist, chart_duration_ecdf):
         chart_duration,
         mo.hstack([chart_duration_dist, chart_duration_ecdf], justify="start"),
     ])
-
     return
 
 
@@ -1168,7 +1181,6 @@ def view_energy(
         chart_energy_timeline,
         mo.hstack([chart_zones, chart_time_energy], justify="start"),
     ])
-
     return
 
 
@@ -1179,24 +1191,38 @@ def md_noise():
 
     The excess is a small difference between two large numbers, so it needs a stated
     detection limit rather than a bare mean. Applying the **identical estimator to
-    1 210 windows of the idle capture**, where no pod starts and the true answer is
+    1 211 windows of the idle capture**, where no pod starts and the true answer is
     zero by construction, gives the noise floor:
 
-    * mean **0.03 J** - the estimator is unbiased, which validates the method;
-    * sd **15.2 J**, with a 95 % range of **-35 J to +34 J** for a *single* window.
+    * mean **0.64 J** against a sd of 15.4 J - the estimator carries no meaningful
+      bias, which validates the method;
+    * sd **15.4 J**, with a 95 % range of **-36 J to +44 J** for a *single* window.
+
+    The window length used here is the pooled median cold-start duration (2.82 s),
+    but the noise floor turns out to be almost **independent of window length**:
+    repeating the sweep at each target's own mean duration gives sd 15.1 J at 2.02 s
+    and 17.4 J at 9.53 s, a 15 % spread over a 4.7x range of durations. The error is
+    therefore dominated by counter quantization at the two window boundaries rather
+    than by the length of the integration, and one pooled figure is legitimate for
+    all six targets.
 
     **A single cold-start measurement is therefore worthless for every target except
     `oci-spring`.** The 6-23 J excesses are far inside the noise band, and individual
-    runs come out negative regularly. What rescues the analysis is repetition: with
-    30 runs the standard error falls to about 2.8 J, so the smallest resolvable mean
-    is **5.6 J** (2 SE, the dashed line in the energy chart).
+    runs come out negative regularly: 12 of 29 for `wasm-js`, 11 of 30 for both
+    `oci-axum` and `wasm-rust`, 4 for `oci-native`, 4 for `oci-node` - and none at
+    all for `oci-spring`, whose smallest single run is still 221 J. What rescues the
+    analysis is repetition: with 30 runs the standard error falls to 2.8 J, so the
+    smallest resolvable mean is **5.6 J** (2 SE, the dashed line in the energy
+    chart).
 
     Against that limit every target's 95 % CI excludes zero, but by very different
     margins: `oci-spring` (CI 419-464 J) is unambiguous, `oci-native` (12.9-33.0 J)
-    and `oci-node` (10.0-28.8 J) are solid, while `wasm-rust` (0.5-12.1 J) and
-    `wasm-js` (0.3-26.2 J) sit close enough to the limit that their ordering should
-    not be over-interpreted - the honest statement is that both are small, and
-    smaller than the container targets.
+    and `oci-node` (10.0-28.8 J) are solid, while `wasm-rust` (0.5-12.1 J),
+    `oci-axum` (1.8-17.9 J) and `wasm-js` (0.3-26.2 J) sit close enough to the limit
+    that their ordering should not be over-interpreted. The honest statement is that
+    those three are all small; their point estimates fall below `oci-node` and
+    `oci-native`, but the intervals overlap, so only the gap to `oci-spring` is
+    beyond argument.
     """)
     return
 
@@ -1260,7 +1286,12 @@ def export_figures(
     df_energy_timeline,
     df_idle_baseline,
     df_power_timeline,
+    noise,
 ):
+    # The detection limits are quoted in the thesis (6.3 and 7.1.2) but were only
+    # ever a dict in this notebook, so nothing could check them against the data.
+    df_noise_thresholds = pl.DataFrame([noise])
+
     # Write every thesis figure/table to disk (figures/*.svg|png, tables/*.csv)
     export_manifest = export_all(
         charts={
@@ -1281,12 +1312,12 @@ def export_figures(
             "coldstart_energy_runs": df_coldstart_energy,
             "coldstart_energy_zones": df_coldstart_zones,
             "coldstart_idle_baseline": df_idle_baseline,
+            "coldstart_noise_thresholds": df_noise_thresholds,
             "coldstart_power_timeline": df_power_timeline,
             "coldstart_energy_timeline": df_energy_timeline,
         },
     )
     export_manifest
-
     return
 
 
