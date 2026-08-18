@@ -1206,38 +1206,31 @@ def md_summary():
     mo.md(r"""
     ## Headline results
 
-    Every target served the identical 100 000 heavy requests from a single pod, so
-    these columns compare like for like.
+    Every target served the identical 100 000 heavy requests from a single pod, so these
+    columns compare like for like.
 
-    **Completion time spans 5x.** `oci-spring` finishes in 61.2 s, `oci-axum` in
-    77.2 s and `oci-native` in 84.5 s, while `wasm-js` needs 225.8 s, `wasm-rust`
-    259.9 s and `oci-node` 304.3 s - effective throughput of 1 634 req/s down to
-    329 req/s.
+    **Completion time spans a factor of five**, with the JVM and the compiled container
+    targets at the fast end and `oci-node` slowest.
 
-    **Energy spans 25x, and it does not follow speed.** `oci-node` is the *slowest*
-    target yet spends the least energy (919 J), because it draws only 3.0 W while
-    working. `wasm-js` is the opposite: 23 126 J at 102.4 W - **25x** `oci-node`'s
-    energy for the same work. Ranking by joules per run: `oci-node` 919, `oci-axum`
-    1 288, `oci-spring` 2 409, `oci-native` 4 144, `wasm-rust` 15 091, `wasm-js` 23 126.
+    **Energy spans an order of magnitude more than that, and it does not follow speed.**
+    `oci-node` is the *slowest* target yet spends the least energy, because its average
+    power draw while working is very low. `wasm-js` is the opposite - slow *and*
+    power-hungry - which is how it accumulates the largest bill in the field for
+    identical work.
 
-    **Latency broadly tracks completion time**, as expected with a fixed VU count:
-    p95 runs 25.3 ms (`oci-spring`), 32.7 ms (`oci-axum`), 37.2 ms (`oci-native`),
-    88.0 ms (`wasm-js`), 128.8 ms (`oci-node`) and 152.9 ms (`wasm-rust`). The one
-    inversion is at the slow end: `oci-node` takes the longest overall (304 s against
-    `wasm-rust`'s 260 s) but has the *lower* p95 of the two. Duration follows mean
-    latency - 97 ms for `oci-node` against 83 ms for `wasm-rust` at 32 VUs - and
-    `wasm-rust` carries the heavier tail on top of that.
+    **Latency broadly tracks completion time**, as expected with a fixed VU count. The
+    one inversion is at the slow end: `oci-node` takes the longest overall but has the
+    *lower* p95 of the two slowest targets. Duration follows *mean* latency rather than
+    the tail, and `wasm-rust` carries the heavier tail on top of a lower mean.
 
-    **Idle draw is negligible here.** The idle scenario puts every runtime between
-    0.004 W (`wasm-js`) and 0.35 W (`oci-spring`), so idle overhead accounts for at
-    most **1.2 %** of any run's energy (`oci-node`, the longest run). Essentially all
-    of the measured energy is dynamic - the cost of executing the requests, not of
-    existing.
+    **Idle draw is negligible here.** The idle scenario puts every runtime far below the
+    loaded draw, so idle overhead accounts for at most a per cent or so of any run's
+    energy. Essentially all of the measured energy is dynamic - the cost of executing the
+    requests, not of existing.
 
-    Compared with the scaling scenario, where mixed light routes across several
-    replicas put the container targets within ~4x of each other, this compute-heavy
-    single-pod workload separates the runtimes far more sharply: the WebAssembly
-    targets pay 16-25x `oci-node`'s energy for identical work.
+    Compared with the scaling scenario, where mixed light routes across several replicas
+    keep the container targets close together, this compute-heavy single-pod workload
+    separates the runtimes far more sharply.
     """)
     return
 
@@ -1304,30 +1297,26 @@ def md_timeseries():
     mo.md(r"""
     ## How a run unfolds
 
-    The panel is aligned by **run progress** (percent of the 100 000 requests
-    completed) rather than wall-clock time, because runs differ in length by a factor
-    of five - on an elapsed-time axis the fast targets simply stop early and the
-    comparison becomes visual guesswork. `ts_charts_time` holds the elapsed-time
-    version of the same charts for when the differing run lengths are the point.
+    The panel is aligned by **run progress** (percent of the 100 000 requests completed)
+    rather than wall-clock time, because runs differ in length by a factor of five - on an
+    elapsed-time axis the fast targets simply stop early and the comparison becomes visual
+    guesswork. `ts_charts_time` holds the elapsed-time version of the same charts for when
+    the differing run lengths are the point.
 
-    **Throughput is flat from the first sample.** Comparing the warm-up phase (first
-    10 % of a run) with the steady remainder, throughput moves by at most 3.3 %
-    (`oci-axum`) and by 1.2 % or less on every other target. A single fixed pod at
-    32 VUs is saturated immediately - there is no ramp to wait out, which is what
-    makes the whole-run averages trustworthy.
+    **Throughput is flat from the first sample.** Comparing the warm-up phase (first 10 %
+    of a run) with the steady remainder, throughput barely moves on any target. A single
+    fixed pod at 32 VUs is saturated immediately - there is no ramp to wait out, which is
+    what makes the whole-run averages trustworthy.
 
-    **Warm-up is not what separates the targets.** Only the fast container targets
-    show the classic warm-up penalty, and it is small: p95 in the first 10 % is 8.9 %
-    higher than steady on `oci-axum`, 2.8 % on `oci-native`, 0.3 % on `oci-spring`.
-    All three slow targets show the *opposite* - `wasm-js` is 29.6 % faster during
-    warm-up, `wasm-rust` 9.5 % and `oci-node` 5.5 % - which is queueing, not warming:
-    with all 32 VUs released at once, latency on a saturated runtime climbs as the
-    request backlog builds and then holds. Either way the ranking is set within the
-    first few seconds and never changes, so it reflects the runtime rather than a
-    transient.
+    **Warm-up is not what separates the targets.** Only the fast container targets show
+    the classic warm-up penalty, and it is small. All three slow targets show the
+    *opposite*, being faster during warm-up than in steady state - which is queueing, not
+    warming: with all 32 VUs released at once, latency on a saturated runtime climbs as
+    the backlog builds and then holds. Either way the ranking is set within the first few
+    seconds and never changes, so it reflects the runtime rather than a transient.
 
-    `df_baseline_phases` holds the warm-up/steady/overall breakdown for every metric
-    with the exact numbers.
+    `df_baseline_phases` holds the warm-up/steady/overall breakdown for every metric with
+    the exact numbers.
     """)
     return
 
@@ -1343,29 +1332,27 @@ def md_energy():
     mo.md(r"""
     ## Energy, power and the speed trade-off
 
-    The energy chart uses a **log x-axis** - the spread from 919 J to 23 126 J is too
-    wide for a linear scale to show the cheap targets at all - so package and DRAM are
-    drawn as **separate bars rather than stacked**: a log axis cannot stack, and
-    drawing both from the origin would bury the smaller DRAM bar behind the package
-    one. The companion chart normalizes the same split to 100 %.
+    The energy chart uses a **log x-axis** - the spread across targets is too wide for a
+    linear scale to show the cheap ones at all - so package and DRAM are drawn as
+    **separate bars rather than stacked**: a log axis cannot stack, and drawing both from
+    the origin would bury the smaller DRAM bar behind the package one. The companion chart
+    normalizes the same split to 100 %.
 
-    **Package dominates everywhere**, but the DRAM share is not constant:
-    `oci-node` spends **13.7 %** of its energy in DRAM against 5.8-7.8 % for every
-    other target. That follows from how it earns its low total - DRAM refresh cost
-    accrues with *time*, and `oci-node` takes 304 s where `oci-spring` takes 61 s, so
-    a low-power run accumulates proportionally more of its bill in memory.
+    **Package dominates everywhere**, but the DRAM share is not constant: `oci-node`
+    spends materially more of its energy in DRAM than any other target. That follows from
+    how it earns its low total - DRAM refresh cost accrues with *time*, and `oci-node`
+    runs far longer than the fast targets, so a low-power run accumulates proportionally
+    more of its bill in memory.
 
-    The power chart separates *how hard* a runtime drives the CPU from *how long* it
-    does so. The black tick marks the same runtime's idle draw - the distance from
-    tick to bar is the dynamic cost of serving traffic, and it is essentially the
-    whole bar for every target.
+    The power chart separates *how hard* a runtime drives the CPU from *how long* it does
+    so. The black tick marks the same runtime's idle draw - the distance from tick to bar
+    is the dynamic cost of serving traffic, and it is essentially the whole bar for every
+    target.
 
-    The speed-vs-power scatter is the key figure for this scenario: **energy is the
-    product of the two axes**, so any target above and to the right of another loses
-    on both counts. `oci-node` sits bottom-right (slow but very cheap per second),
-    `oci-spring` and `oci-axum` bottom-left (fast and moderate), and `wasm-js` sits
-    top-right - slow *and* power-hungry, which is how it accumulates the largest
-    energy bill in the field.
+    The speed-vs-power scatter is the key figure for this scenario: **energy is the product
+    of the two axes**, so any target above and to the right of another loses on both counts.
+    `oci-node` sits bottom-right (slow but very cheap per second), `oci-spring` and
+    `oci-axum` bottom-left (fast and moderate), and `wasm-js` top-right.
     """)
     return
 
@@ -1400,24 +1387,20 @@ def md_scatter():
     mo.md(r"""
     ## Which target is actually the most efficient?
 
-    With work held constant, "efficient" has two defensible readings, and they
-    disagree:
+    With work held constant, "efficient" has two defensible readings, and they disagree:
 
-    - **Least energy for the job:** `oci-node` (919 J, 91.9 J per 10k requests),
-      despite taking the longest.
-    - **Best energy for a given speed:** `oci-axum` - 1 288 J while finishing in
-      77.2 s, i.e. 4x faster than `oci-node` for 1.4x the energy.
+    - **Least energy for the job:** `oci-node`, despite taking the longest.
+    - **Best energy for a given speed:** `oci-axum`, several times faster than `oci-node`
+      for a modest energy premium.
 
-    Those two, plus `oci-spring` (fastest overall at 61.2 s), are the only targets on
-    the Pareto frontier of throughput vs. energy cost. Everything else is dominated:
-    `oci-native` is beaten outright by `oci-axum`, which is faster (84.5 s -> 77.2 s)
-    *and* spends 3.2x less energy - 4 144 J against 1 288 J, or 4.5x `oci-node`'s
-    919 J. Both Wasm targets are beaten on both axes at once - `wasm-rust` pays 16x
-    `oci-node`'s energy and is still 4x slower than `oci-spring`.
+    Those two, plus `oci-spring` (fastest overall), are the only targets on the Pareto
+    frontier of throughput vs. energy cost. Everything else is dominated: `oci-native` is
+    beaten outright by `oci-axum`, which is both faster *and* substantially cheaper, and
+    both Wasm targets are beaten on both axes at once.
 
-    The per-run scatter shows the ranking is not noise: run-to-run spread in duration
-    is under 5 s for every target (sd 0.36-4.97 s), and the energy clusters do not
-    overlap between targets.
+    The per-run scatter shows the ranking is not noise: run-to-run spread in duration is a
+    few seconds at most for every target, and the energy clusters do not overlap between
+    targets.
     """)
     return
 
@@ -1456,37 +1439,25 @@ def md_idle():
     mo.md(r"""
     ## Idle scenario: what a pod costs doing nothing
 
-    Ten minutes with no traffic, measuring only the runtime's resting draw. **The
-    first two minutes of each capture are discarded**: the scenario begins about 15 s
-    after the deployment is applied, so the head of every capture is the pod
-    finishing start-up rather than idling. Over the full capture five of six targets
-    accumulate 90-99 % of their energy in the first fifth and then flatline, which
-    inflates the figure by one to two orders of magnitude and scrambles the ordering.
-    The cutoff itself does not drive the result - 10 %, 20 %, 33 % and 50 % agree to
-    within a few per cent on every target.
+    Ten minutes with no traffic, measuring only the runtime's resting draw. **The first
+    two minutes of each capture are discarded**: the scenario begins about 15 s after the
+    deployment is applied, so the head of every capture is the pod finishing start-up
+    rather than idling. Over the full capture five of six targets accumulate almost all of
+    their energy in the first fifth and then flatline, which inflates the figure by one to
+    two orders of magnitude and scrambles the ordering. The cutoff itself does not drive
+    the result - 10 %, 20 %, 33 % and 50 % agree to within a few per cent on every target.
 
-    Measured over the remaining eight minutes the resting draws are:
+    `df_baseline_idle` holds the resting draw measured over the remaining eight minutes.
+    The ordering is what the runtimes' architectures predict: a compiled Rust binary with
+    no managed runtime is quietest, the two Wasm components next, then the Node.js event
+    loop, then GraalVM, and the JVM with its GC threads is dearest. All six are negligible
+    against the loaded benchmark.
 
-    | target | idle (W) |
-    | --- | --- |
-    | `oci-axum` | 0.0012 |
-    | `wasm-rust` | 0.0027 |
-    | `wasm-js` | 0.0043 |
-    | `oci-node` | 0.0048 |
-    | `oci-native` | 0.0090 |
-    | `oci-spring` | 0.0173 |
-
-    The ordering is what the runtimes' architectures predict: a compiled Rust binary
-    with no managed runtime is quietest, the two Wasm components next, then the
-    Node.js event loop, then GraalVM, and the JVM with its GC threads is dearest at
-    14x the cheapest. All six are negligible against the loaded benchmark, where they
-    account for 0.004-0.16 % of a run.
-
-    Note what this does **not** show. The resting ranking does not invert the loaded
-    one: `oci-axum` is both the cheapest at rest and on the loaded Pareto frontier.
-    Idle draw is therefore not a lever that rescues WebAssembly at low duty cycle -
-    see `breakeven.py`, where the crossings fall below 0.11 req/s and `oci-axum` is
-    never overtaken at all.
+    Note what this does **not** show. The resting ranking does not invert the loaded one:
+    `oci-axum` is both the cheapest at rest and on the loaded Pareto frontier. Idle draw is
+    therefore not a lever that rescues WebAssembly at low duty cycle - see `breakeven.py`,
+    where the crossings fall far below any realistic request rate and `oci-axum` is never
+    overtaken at all.
     """)
     return
 

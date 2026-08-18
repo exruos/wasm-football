@@ -1093,35 +1093,32 @@ def md_time():
     mo.md(r"""
     ## Cold-start time
 
-    **`wasm-rust` is the fastest to serve its first request at 2.02 s**, followed by
-    `wasm-js` (2.81 s), `oci-native` (3.16 s), `oci-node` (3.53 s) and `oci-axum`
-    (3.58 s). **`oci-spring` needs 9.53 s** - 4.7x the fastest target and 2.7x the
-    next slowest, which is the JVM paying for class loading and context
-    initialization before it can answer at all.
+    **`wasm-rust` is the fastest to serve its first request**, with `wasm-js` next and the
+    three other container targets close behind. **`oci-spring` is several times slower than
+    any of them**, which is the JVM paying for class loading and context initialization
+    before it can answer at all.
 
-    **The durations are quantized by k6's histogram buckets**, which limits how far
-    the spreads can be read. `histogram_quantile` over `vmrange` returns a bucket
-    edge, and the buckets are about 9 % wide in relative terms, so across 30 runs
-    each target lands on only 5-9 distinct values (`oci-axum` and `oci-spring`: 5).
-    Variation narrower than one bucket is invisible. With that caveat:
+    **The durations are quantized by k6's histogram buckets**, which limits how far the
+    spreads can be read. `histogram_quantile` over `vmrange` returns a bucket edge, and the
+    buckets are about 9 % wide in relative terms, so across 30 runs each target lands on
+    only a handful of distinct values. Variation narrower than one bucket is invisible.
+    With that caveat:
 
-    * `oci-spring` has the smallest absolute spread (sd 0.37 s), but at 3.9 % of its
-      mean that is *below* one bucket width - its run-to-run variation sits at or
-      under the measurement resolution, so "predictable" is as much a statement about
-      the instrument as about the JVM.
-    * `wasm-js` is genuinely the least predictable (sd 1.36 s, 48 % of its mean, cold
-      runs from 1.83 s to 9.47 s) - its ECDF has a long tail, so a user's experience
-      of it varies wildly. That spread is many buckets wide and therefore real.
-    * the other four targets sit at 15-19 % relative sd, roughly two bucket widths -
-      resolvable, but not finely.
-    * `wasm-rust` combines the fastest mean with a tight spread (sd 0.39 s), making
-      it the best target on this axis by both measures.
+    * `oci-spring` has the smallest absolute spread, but relative to its mean that is
+      *below* one bucket width - its run-to-run variation sits at or under the measurement
+      resolution, so "predictable" is as much a statement about the instrument as about
+      the JVM.
+    * `wasm-js` is genuinely the least predictable - its ECDF has a long tail, so a user's
+      experience of it varies wildly. That spread is many buckets wide and therefore real.
+    * the other four targets sit at roughly two bucket widths: resolvable, but not finely.
+    * `wasm-rust` combines the fastest mean with a tight spread, making it the best target
+      on this axis by both measures.
 
-    Two repetitions were **excluded as not cold** (`oci-node` run 30 at 17 ms,
-    `wasm-js` run 4 at 68 ms): a cold start cannot complete in tens of milliseconds,
-    so KEDA had evidently not finished scaling to zero and the request hit a
-    surviving replica. They are flagged by `is_cold` rather than deleted, so the
-    exclusion is visible and reversible.
+    Two repetitions were **excluded as not cold** (`oci-node` run 30 at 17 ms, `wasm-js`
+    run 4 at 68 ms): a cold start cannot complete in tens of milliseconds, so KEDA had
+    evidently not finished scaling to zero and the request hit a surviving replica. They
+    are flagged by `is_cold` rather than deleted, so the exclusion is visible and
+    reversible.
     """)
     return
 
@@ -1140,30 +1137,26 @@ def md_energy():
     mo.md(r"""
     ## Cold-start energy
 
-    Energy is measured at the **node** and the idle baseline is subtracted, because
-    Kepler cannot report per-pod counters for a pod that does not exist yet. The
-    baseline comes from the `idle-scaled` capture with zero application pods:
-    **26.57 W** (21.91 W package + 4.66 W dram).
+    Energy is measured at the **node** and the idle baseline is subtracted, because Kepler
+    cannot report per-pod counters for a pod that does not exist yet. The baseline comes
+    from the `idle-scaled` capture with zero application pods deployed.
 
     Two things follow from that, and the first is uncomfortable:
 
-    **Most of the energy in the window is not the cold start.** Over a 3.6 s
-    `oci-axum` cold start the node draws 105 J, of which **95 J is idle baseline** -
-    the service start accounts for 9.8 J, under 10 % of what was measured. The stacked
-    chart shows this directly; only `oci-spring`, whose window is long and whose
-    startup is CPU-heavy, breaks out of the baseline (441 J excess against 253 J of
-    baseline).
+    **Most of the energy in the window is not the cold start.** Over a typical few-second
+    cold start the great majority of the node's draw is idle baseline, and the service
+    start accounts for well under a tenth of what was measured. The stacked chart shows
+    this directly; only `oci-spring`, whose window is long and whose startup is CPU-heavy,
+    breaks out of the baseline.
 
-    **The excess ranks the targets the same way as time, with one exception.**
-    Mean excess energy per cold start: `wasm-rust` **6.3 J**, `oci-axum` **9.8 J**,
-    `wasm-js` **13.3 J**, `oci-node` **19.4 J**, `oci-native` **22.9 J**,
-    `oci-spring` **441 J**. `oci-native` costs more than `oci-node` despite starting
-    faster, because it draws more power while it starts (7.5 W vs 5.4 W above idle).
+    **The excess ranks the targets much as time does, with one exception.** `oci-native`
+    costs more than `oci-node` despite starting faster, because it draws more power while
+    it starts.
 
-    Expressed as excess power, the picture is flatter: 2.8-7.5 W above idle for every
-    target except `oci-spring`, which sustains **46 W above idle** for 9.5 s. A
-    single JVM cold start therefore costs roughly **as much energy as 70 `wasm-rust`
-    cold starts**.
+    Expressed as excess power rather than energy the picture is much flatter for every
+    target except `oci-spring`, which sustains a large excess for the whole of its long
+    start. A single JVM cold start therefore costs as much energy as a great many
+    `wasm-rust` cold starts.
     """)
     return
 
@@ -1190,39 +1183,30 @@ def md_noise():
     ## How much of this is measurable?
 
     The excess is a small difference between two large numbers, so it needs a stated
-    detection limit rather than a bare mean. Applying the **identical estimator to
-    1 211 windows of the idle capture**, where no pod starts and the true answer is
-    zero by construction, gives the noise floor:
+    detection limit rather than a bare mean. Applying the **identical estimator to 1 211
+    windows of the idle capture**, where no pod starts and the true answer is zero by
+    construction, gives the noise floor. Its mean is close to zero against a much larger
+    sd, so the estimator carries no meaningful bias - which is what validates the method.
 
-    * mean **0.64 J** against a sd of 15.4 J - the estimator carries no meaningful
-      bias, which validates the method;
-    * sd **15.4 J**, with a 95 % range of **-36 J to +44 J** for a *single* window.
-
-    The window length used here is the pooled median cold-start duration (2.82 s),
-    but the noise floor turns out to be almost **independent of window length**:
-    repeating the sweep at each target's own mean duration gives sd 15.1 J at 2.02 s
-    and 17.4 J at 9.53 s, a 15 % spread over a 4.7x range of durations. The error is
-    therefore dominated by counter quantization at the two window boundaries rather
-    than by the length of the integration, and one pooled figure is legitimate for
-    all six targets.
+    The window length used here is the pooled median cold-start duration, but the noise
+    floor turns out to be almost **independent of window length**: repeating the sweep at
+    each target's own mean duration moves the sd by around 15 % over a 4.7x range of
+    durations. The error is therefore dominated by counter quantization at the two window
+    boundaries rather than by the length of the integration, and one pooled figure is
+    legitimate for all six targets.
 
     **A single cold-start measurement is therefore worthless for every target except
-    `oci-spring`.** The 6-23 J excesses are far inside the noise band, and individual
-    runs come out negative regularly: 12 of 29 for `wasm-js`, 11 of 30 for both
-    `oci-axum` and `wasm-rust`, 4 for `oci-native`, 4 for `oci-node` - and none at
-    all for `oci-spring`, whose smallest single run is still 221 J. What rescues the
-    analysis is repetition: with 30 runs the standard error falls to 2.8 J, so the
-    smallest resolvable mean is **5.6 J** (2 SE, the dashed line in the energy
-    chart).
+    `oci-spring`.** The other five excesses lie far inside the noise band, and individual
+    runs come out negative regularly - for `oci-spring` alone, never. What rescues the
+    analysis is repetition: with 30 runs the standard error falls far enough that the
+    smallest resolvable mean is a few joules (2 SE, the dashed line in the energy chart).
 
-    Against that limit every target's 95 % CI excludes zero, but by very different
-    margins: `oci-spring` (CI 419-464 J) is unambiguous, `oci-native` (12.9-33.0 J)
-    and `oci-node` (10.0-28.8 J) are solid, while `wasm-rust` (0.5-12.1 J),
-    `oci-axum` (1.8-17.9 J) and `wasm-js` (0.3-26.2 J) sit close enough to the limit
-    that their ordering should not be over-interpreted. The honest statement is that
-    those three are all small; their point estimates fall below `oci-node` and
-    `oci-native`, but the intervals overlap, so only the gap to `oci-spring` is
-    beyond argument.
+    Against that limit every target's 95 % CI excludes zero, but by very different margins.
+    `oci-spring` is unambiguous; `oci-native` and `oci-node` are solid; `wasm-rust`,
+    `oci-axum` and `wasm-js` sit close enough to the limit that their ordering should not
+    be over-interpreted. The honest statement is that those three are all small - their
+    point estimates fall below `oci-node` and `oci-native`, but the intervals overlap, so
+    only the gap to `oci-spring` is beyond argument.
     """)
     return
 
@@ -1349,61 +1333,49 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    To evaluate the statement, we can analyze the mathematical derivation step-by-step from the initial continuous integral down to the discrete metric approximation.
+    ### Derivation of the discrete estimator
+
+    Why the energy above can be computed from a mean-power metric and a duration, rather
+    than by integrating a power series.
 
     ---
 
-    ### Step 1: Continuous Integral Expansion
-
-    Let $\Delta t = t_1 - t_0$ represent the duration of the cold start interval. Starting from the total energy integral:
-
-    $$E_{\text{coldstart}} = \int_{t_0}^{t_1} \Big( P_{\text{node}}(t) - P_{\text{baseline}} \Big) \, dt$$
-
-    By the linearity property of integration, we split the integral into two parts:
+    **Step 1: expand the continuous integral.** Let $\Delta t = t_1 - t_0$ be the duration
+    of the cold-start interval. By linearity of integration:
 
     $$\int_{t_0}^{t_1} \Big( P_{\text{node}}(t) - P_{\text{baseline}} \Big) \, dt = \int_{t_0}^{t_1} P_{\text{node}}(t) \, dt - \int_{t_0}^{t_1} P_{\text{baseline}} \, dt$$
 
-    Since $P_{\text{baseline}}$ is constant over $[t_0, t_1]$, its integral simplifies to:
-
-    $$\int_{t_0}^{t_1} P_{\text{baseline}} \, dt = P_{\text{baseline}} \cdot (t_1 - t_0) = P_{\text{baseline}} \Delta t$$
+    Since $P_{\text{baseline}}$ is constant over $[t_0, t_1]$, its integral is just
+    $P_{\text{baseline}} \Delta t$.
 
     ---
 
-    ### Step 2: Factoring $\Delta t$
-
-    Substituting $P_{\text{baseline}} \Delta t$ back into the split integral:
-
-    $$E_{\text{coldstart}} = \int_{t_0}^{t_1} P_{\text{node}}(t) \, dt - P_{\text{baseline}} \Delta t$$
-
-    Factoring out $\Delta t$:
+    **Step 2: factor out $\Delta t$.**
 
     $$E_{\text{coldstart}} = \left( \frac{1}{\Delta t} \int_{t_0}^{t_1} P_{\text{node}}(t) \, dt - P_{\text{baseline}} \right) \Delta t$$
 
-    This algebraic transformation is exact and confirms the equality of the second formula.
+    This step is exact algebra, not an approximation.
 
     ---
 
-    ### Step 3: Mean Power Approximation
-
-    By definition, the mean value of a continuous power function $P_{\text{node}}(t)$ over time interval $\Delta t$ is:
-
-    $$\bar{P}_{\text{node, exact}} = \frac{1}{\Delta t} \int_{t_0}^{t_1} P_{\text{node}}(t) \, dt$$
-
-    In monitoring systems like Prometheus and Kepler, power is measured via discrete samples. The function $\text{avg\_over\_time}(\text{kepler\_node\_cpu\_watts}[\Delta t])$ computes the arithmetic mean of these discrete samples, which serves as a Riemann sum approximation of the continuous time average:
+    **Step 3: approximate the mean power.** The leading term is by definition the mean of
+    $P_{\text{node}}(t)$ over the interval. Kepler samples power discretely, and
+    $\text{avg\_over\_time}(\text{kepler\_node\_cpu\_watts}[\Delta t])$ is the arithmetic
+    mean of those samples - a Riemann sum approximating the continuous average:
 
     $$\bar{P}_{\text{node}} = \text{avg\_over\_time}(\text{kepler\_node\_cpu\_watts}[\Delta t]) \approx \frac{1}{\Delta t} \int_{t_0}^{t_1} P_{\text{node}}(t) \, dt$$
 
     ---
 
-    ### Step 4: Final Substitution
-
-    Replacing the continuous mean integral with the discrete sample average $\bar{P}_{\text{node}}$ yields the energy estimate:
+    **Step 4: substitute.**
 
     $$E_{\text{coldstart}} \approx (\bar{P}_{\text{node}} - P_{\text{baseline}}) \times \Delta t$$
 
-    ---
-
-    Since every algebraic step is exact and the transition to PromQL discrete sampling is mathematically valid, the overall statement is **True**.
+    Every algebraic step is exact; the only approximation is the discrete sampling in
+    step 3, whose error is bounded by the noise-floor sweep above. Note that the notebook
+    does **not** actually use this route: it differences the cumulative joules counter
+    across the window, which avoids the sampling approximation entirely. The derivation is
+    kept because it shows the two formulations agree.
     """)
     return
 
