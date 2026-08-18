@@ -1,0 +1,20 @@
+daemonset:
+  resources:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+    requests:
+      cpu: "1"
+      memory: 1Gi
+
+config:
+  monitor:
+    interval: 100ms
+    staleness: 50ms
+    maxTerminated: 1000
+    minTerminatedEnergyThreshold: 0.0001
+
+  exporter:
+    prometheus:
+      metricsLevel:
+        - node

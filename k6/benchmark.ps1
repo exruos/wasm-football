@@ -1,10 +1,10 @@
 param (
     [Parameter(Mandatory = $true)]
-    [ValidateSet("wasm-rust", "wasm-js", "oci-axum", "oci-node", "oci-spring")]
+    [ValidateSet("wasm-rust", "wasm-js", "oci-axum", "oci-node", "oci-spring", "oci-native", "wasm-rust-components")]
     [string]$Target,
 
     [Parameter(Mandatory = $true)]
-    [ValidateSet("baseline", "coldstart", "scaling")]
+    [ValidateSet("idle", "baseline", "coldstart", "scaling")]
     [string]$Scenario,
 
     [int]$Replays = 5,
@@ -17,7 +17,7 @@ param (
 )
 
 # --- Extract metadata from the Target parameter ---
-$Parts = $Target -Split '-'
+$Parts = $Target -Split '-', 2
 $Runtime = $Parts[0]   # "wasm" or "oci"
 $Framework = $Parts[1]   # "rust", "js", "axum", "node", or "spring"
 
@@ -37,7 +37,7 @@ Write-Host " Replays:  $Replays loop(s)"
 Write-Host "=========================================================" -ForegroundColor Cyan
 
 try {
-    if ($Scenario -ne "coldstart") {
+    if ($Scenario -ne "coldstart" -and $Scenario -ne "idle") {
         Write-Host "`n[Warmup] Executing a warmup run to stabilize the target..." -ForegroundColor Yellow
         k6 run --env scenario="warmup" $ScriptName
     }
@@ -77,6 +77,7 @@ try {
             
                 if ($IsScaledDown) {
                     Write-Host "`n[Coldstart Setup] Target '$DeploymentName' successfully scaled to 0 by KEDA." -ForegroundColor Green
+                    Start-Sleep -Seconds 5
                     break
                 }
                 Write-Host "." -NoNewline -ForegroundColor Gray
@@ -88,7 +89,8 @@ try {
                 Write-Host "[Coldstart Setup] Holding for a 30-second energy cooling window..." -ForegroundColor Yellow
                 Start-Sleep -Seconds 30
             }
-        } elseif ($Scenario -eq "scaling") {
+        }
+        elseif ($Scenario -eq "scaling") {
             Write-Host "`n[Scaling Setup] Ensuring target is at one pod scaled before the next replay..." -ForegroundColor Magenta
             while ($true) {
                 Write-Host "[Scaling Setup] Triggering a single request to wake up the target..." -ForegroundColor Yellow
@@ -117,11 +119,19 @@ try {
         # 1. CAPTURE EXACT START TIME (RFC3339 format required by VictoriaMetrics)
         $StartTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-        # 2. RUN BENCHMARK
-        k6 run `
-            -o experimental-prometheus-rw `
-            --env scenario=$Scenario `
-            $ScriptName
+        # 2. RUN BENCHMARK OR IDLE WAIT
+        if ($Scenario -eq "idle") {
+            $IdleMinutes = 10
+            Write-Host "Scenario is 'idle'. Waiting for $IdleMinutes minutes to measure idle energy..." -ForegroundColor Cyan
+
+            Start-Sleep -Seconds ($IdleMinutes * 60)
+        }
+        else {
+            k6 run `
+                -o experimental-prometheus-rw `
+                --env scenario=$Scenario `
+                $ScriptName
+        }
 
         # 3. CAPTURE EXACT END TIME
         $EndTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")

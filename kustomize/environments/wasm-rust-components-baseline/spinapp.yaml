@@ -1,0 +1,15 @@
+apiVersion: core.spinkube.dev/v1alpha1
+kind: SpinApp
+metadata:
+  name: football-app
+spec:
+  replicas: 1
+  image: localhost:5000/football-rust:wasm-components
+  executor: containerd-shim-spin
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  variables:
+    - name: db_url
+      value: ""

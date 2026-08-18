@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('All', 'JsNode', 'RustAxum', 'JsWasm', 'RustWasm', 'RustWasmComponents', 'KotlinSpring')]
+    [ValidateSet('All', 'JsNode', 'RustAxum', 'JsWasm', 'RustWasm', 'RustWasmComponents', 'KotlinSpring', 'KotlinNative')]
     [Parameter(Mandatory = $true)]
     [string]$Target
     ,
@@ -152,6 +152,16 @@ switch ($Target) {
     'KotlinSpring' {
         $LocalImage = 'football-kotlin:spring'
         $RegistryImage = "$RegistryHost/football-kotlin:spring"
+        Write-Host "Tagging $LocalImage as $RegistryImage"
+        docker tag $LocalImage $RegistryImage
+
+        Write-Host "Pushing $RegistryImage"
+        docker push $RegistryImage
+    }
+
+    'KotlinNative' {
+        $LocalImage = 'football-kotlin:native'
+        $RegistryImage = "$RegistryHost/football-kotlin:native"
         Write-Host "Tagging $LocalImage as $RegistryImage"
         docker tag $LocalImage $RegistryImage
 

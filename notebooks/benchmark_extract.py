@@ -1,20 +1,16 @@
 import marimo
 
-__generated_with = "0.23.14"
+__generated_with = "0.23.16"
 app = marimo.App(width="medium")
 
-
-@app.cell
-def _():
+with app.setup:
     import json
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
+
     import altair as alt
     import httpx
-    import marimo as mo
     import polars as pl
     from polars import DataFrame
-
-    return DataFrame, alt, datetime, httpx, json, pl, timedelta, timezone
 
 
 @app.cell
@@ -26,7 +22,7 @@ def _():
 
 
 @app.cell
-def _(DataFrame, datetime, httpx, json, pl, timezone):
+def _():
     def read_jsonl(path: str) -> DataFrame:
         rows = []
 
@@ -137,11 +133,15 @@ def _(DataFrame, datetime, httpx, json, pl, timezone):
 def _():
     metrics = {
         'pod_joules': 'kepler_pod_cpu_joules_total{pod_namespace="football",pod_name=~"football-app-.*"}',
+        'node_joules': 'kepler_node_cpu_joules_total',
+        'node_cpu_watts': 'kepler_node_cpu_watts',
+        'node_avg_cpu_watts': 'avg_over_time(kepler_node_cpu_watts)', 
         'pods': 'kube_deployment_status_replicas_available{deployment="football-app", namespace="football"}',
         'requests': 'k6_http_reqs_total',
         'iterations': 'k6_iterations_total',
         'vus': 'k6_vus',
         'p95': 'histogram_quantile(0.95, sum(k6_http_req_duration_seconds_bucket) by (vmrange))',
+        'p95_by_route': 'histogram_quantile(0.95, sum(k6_http_req_duration_seconds_bucket) by (vmrange, url))',
         'p99': 'histogram_quantile(0.99, sum(k6_http_req_duration_seconds_bucket) by (vmrange))',
         'rps': 'rate(k6_http_req_duration_seconds_count)',
         'memory': 'pod_memory_working_set_bytes{pod=~"football-app.*"} / 1024 / 1024',
@@ -149,6 +149,18 @@ def _():
         'cpu_usage': 'rate(pod_cpu_usage_seconds_total{pod=~"football-app.*"}) / count(node_cpu_seconds_total{mode="idle"}) * 100',
     }
     return (metrics,)
+
+
+@app.cell
+def _():
+    scenario_metrics: dict[str, set[str]] = {
+        "coldstart": {"node_joules", "node_cpu_watts", "node_avg_cpu_watts", "p95"},
+        "baseline":  {"pod_joules", "iterations", "p95", "p99", "rps", "memory", "cpu_usage"},
+        "idle": {"pod_joules"},
+        "idle-scaled": {"node_joules", "node_cpu_watts", "node_avg_cpu_watts"},
+        "scaling": {"pod_joules", "pods", "requests", "vus", "p95", "p95_by_route", "p99", "rps", "memory", "checks_rate", "cpu_usage"},
+    }
+    return (scenario_metrics,)
 
 
 @app.cell
@@ -160,7 +172,14 @@ def _(jsonl_file, read_jsonl):
 
 
 @app.cell
-def _(datetime, df_runs, endpoint, metrics, query_range, step, timedelta):
+def _(
+    df_runs,
+    endpoint,
+    metrics,
+    query_range,
+    scenario_metrics: dict[str, set[str]],
+    step,
+):
     import os
 
     # Create output directory for parquet files
@@ -177,16 +196,19 @@ def _(datetime, df_runs, endpoint, metrics, query_range, step, timedelta):
         framework = run["Framework"]
         scenario = run["Scenario"]
         iteration = run["Iteration"]
-   
+
         benchmark_delta = timedelta(seconds=5)
-        start_time: datetime = run["StartTime"] - benchmark_delta
+        start_time: datetime = run["StartTime"] - (timedelta(seconds=0) if scenario == "coldstart" else benchmark_delta)
         end_time: datetime = run["EndTime"] + (timedelta(seconds=10) if scenario == "coldstart" else benchmark_delta)
 
         print(f"Processing: {framework}/{runtime}/{scenario} Iteration: {iteration}")
         print(f" Time range: {start_time} to {end_time}")
 
-        # Query all metrics for this run
+        # Query metrics for this run, skipping scenario-irrelevant ones
+        selected_metrics = scenario_metrics.get(scenario, set())
         for metric_name, promql_query in metrics.items():
+            if metric_name not in selected_metrics:
+                continue
             try:
                 df_metric = query_range(
                     endpoint=endpoint,
@@ -219,14 +241,14 @@ def _(datetime, df_runs, endpoint, metrics, query_range, step, timedelta):
 
 
 @app.cell
-def _(pl):
+def _():
     test_df = pl.read_parquet("parquet/oci-axum/baseline/pod_joules_1.parquet")
     test_df
     return (test_df,)
 
 
 @app.cell
-def _(alt, test_df):
+def _(test_df):
     fig = (
         alt.Chart(test_df)
         .mark_point(size=80)

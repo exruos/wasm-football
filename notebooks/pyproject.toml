@@ -5,19 +5,24 @@ requires-python = ">=3.13"
 dependencies = [
     "altair>=6.2.2",
     "httpx>=0.28.1",
-    "marimo[mcp]>=0.23.14",
+    "marimo[mcp]>=0.23.16",
     "numpy>=2.5.1",
-    "pandas>=3.0.3",
-    "polars>=1.42.1",
+    "pandas>=3.0.5",
+    "polars>=1.43.1",
     "pyarrow>=25.0.0",
-    "pydantic-ai>=2.13.0",
-    "ruff>=0.15.22",
-    "ty>=0.0.61",
+    "pydantic-ai>=2.21.0",
+    "ruff>=0.16.1",
+    "ty>=0.0.65",
+    "vegafusion>=2.0.3",
+    "vl-convert-python>=1.9.0.post1",
 ]
 
 [dependency-groups]
 dev = [
     "python-lsp-ruff>=2.3.1",
-    "python-lsp-server>=1.14.0",
+    "python-lsp-server>=1.15.0",
     "websockets>=16.1.1",
 ]
+
+[tool.marimo.runtime]
+output_max_bytes = 50_000_000

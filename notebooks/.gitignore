@@ -1,2 +1,7 @@
 __pycache__
+__marimo__
 .venv
+.idea
+.ruff_cache
+figures
+tables

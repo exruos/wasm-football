@@ -1,0 +1,17 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: kepler-scraper
+  namespace: monitoring
+  labels:
+    release: vmks 
+spec:
+  jobLabel: app.kubernetes.io/name
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kepler 
+  endpoints:
+  - port: http
+    interval: 500ms
+    scrapeTimeout: 400ms
+    path: /metrics
