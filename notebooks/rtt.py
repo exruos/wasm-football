@@ -164,7 +164,7 @@ def unpack(df_raw, raw_source):
         "zero means plain HTTP, so the figure is a full round trip with no TLS "
         "negotiation folded in."
     )
-    return conn_count, conn_sum, tls_sum
+    return conn_count, conn_sum
 
 
 @app.cell
@@ -251,11 +251,16 @@ def show_summary(df_rtt_summary):
 
 @app.cell
 def chart(df_rtt, df_rtt_by_target):
+    # One explicit row order for both layers. Sorting each layer by its own
+    # EncodingSortField cannot work here: the medians frame has no `rtt_ms`
+    # column to sort on, and a mismatch would put a tick on the wrong row.
+    _order = df_rtt_by_target.sort("median_ms")["target"].to_list()
+
     _points = (
         alt.Chart(df_rtt)
         .mark_point(size=28, opacity=0.45, filled=True)
         .encode(
-            y=alt.Y("target:N", title="Target", sort=alt.EncodingSortField("rtt_ms", op="median")),
+            y=alt.Y("target:N", title="Target", sort=_order),
             x=alt.X("rtt_ms:Q", title="TCP handshake, one round trip (ms)",
                     scale=alt.Scale(zero=False, nice=False, padding=12)),
             color=target_color(legend=False),
@@ -266,13 +271,20 @@ def chart(df_rtt, df_rtt_by_target):
             ],
         )
     )
+    # mark_tick, not a stroke-shaped point: a point with `filled=False` takes its
+    # colour from the fill channel, so the tick was drawn with no stroke and came
+    # out invisible against the cloud. A tick also reads as a summary rule rather
+    # than as one more sample.
     _medians = (
         alt.Chart(df_rtt_by_target)
-        .mark_point(size=160, shape="stroke", filled=False, strokeWidth=3)
+        .mark_tick(thickness=3, size=22, opacity=1, color="black")
         .encode(
-            y=alt.Y("target:N", sort=alt.EncodingSortField("median_ms")),
+            y=alt.Y("target:N", sort=_order),
             x="median_ms:Q",
-            color=target_color(legend=False),
+            tooltip=[
+                alt.Tooltip("target:N", title="Target"),
+                alt.Tooltip("median_ms:Q", title="Median (ms)", format=".2f"),
+            ],
         )
     )
 
@@ -280,8 +292,8 @@ def chart(df_rtt, df_rtt_by_target):
         width=520, height=200,
         title={
             "text": "Network round-trip time, measured during the cold-start runs",
-            "subtitle": "One point per run, bar = per-target median. The offset is a "
-                        "property of the path, not of the variant",
+            "subtitle": "One point per run, black tick = per-target median. The offset "
+                        "is a property of the path, not of the variant",
         },
     )
     chart_rtt
@@ -316,7 +328,7 @@ def export_figures(chart_rtt, df_rtt, df_rtt_by_target, df_rtt_summary):
         },
     )
     export_manifest
-    return (export_manifest,)
+    return
 
 
 if __name__ == "__main__":
