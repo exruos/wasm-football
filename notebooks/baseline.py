@@ -1012,6 +1012,8 @@ def chart_helpers(
             .encode(y=alt.Y("v:Q", title=y_title)),
         ]
 
+        err_layers: list = []
+
         if frontier is not None and len(frontier) > 1:
             layers.append(
                 alt.Chart(frontier)
@@ -1019,19 +1021,19 @@ def chart_helpers(
                 .encode(x=x_enc, y=y_enc)
             )
         if x_err and f"{x}_lo" in df_plot.columns:
-            layers.append(
-                base.mark_rule(opacity=0.5).encode(
+            err_layers.append(
+                base.mark_rule(opacity=1.0, strokeWidth=2.2).encode(
                     y=y_enc, x=alt.X(f"{x}_lo:Q", title=x_title), x2=f"{x}_hi:Q", color=target_color(legend=False)
                 )
             )
         if y_err and f"{y}_lo" in df_plot.columns:
-            layers.append(
-                base.mark_rule(opacity=0.5).encode(
+            err_layers.append(
+                base.mark_rule(opacity=1.0, strokeWidth=2.2).encode(
                     x=x_enc, y=alt.Y(f"{y}_lo:Q", title=y_title), y2=f"{y}_hi:Q", color=target_color(legend=False)
                 )
             )
 
-        points = base.mark_point(size=160, filled=True, opacity=0.95).encode(
+        points = base.mark_point(size=55, filled=True, opacity=0.95).encode(
             x=x_enc,
             y=y_enc,
             color=target_color(legend=legend),
@@ -1046,7 +1048,7 @@ def chart_helpers(
         )
 
         return (
-            alt.layer(*layers, points, labels)
+            alt.layer(*layers, points, *err_layers, labels)
             .properties(width=width, height=height, title={"text": title, "subtitle": subtitle})
             .resolve_scale(color="shared")
         )
@@ -1066,7 +1068,7 @@ def chart_helpers(
             x_title="Effective throughput (req/s)",
             y_title="Energy cost (J per 10k requests) - log scale",
             title="Energy cost vs. throughput",
-            subtitle="Bottom-right is better. Dashed line = Pareto frontier, whiskers = +/-1 sd",
+            subtitle="Bottom-right is better. Dashed line = Pareto frontier. Run-to-run spread (+/-1 sd) is drawn but smaller than the marker on every target",
             y_log=True,
             frontier=frontier,
             x_err=True,

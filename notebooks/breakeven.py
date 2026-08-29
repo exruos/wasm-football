@@ -118,7 +118,11 @@ def model(N_REQUESTS):
         period = numer / denom
         return period if period > 0 else None
 
-    return breakeven_period, energy_over_period
+    def dominant_variant(a: dict, b: dict) -> str:
+        """The variant that is ahead at every rate, when there is no crossing."""
+        return a["target"] if a["idle_power_w"] < b["idle_power_w"] else b["target"]
+
+    return breakeven_period, dominant_variant, energy_over_period
 
 
 @app.cell
@@ -174,6 +178,95 @@ def md_table(df_breakeven):
     container.
     """)
     return
+
+
+@app.cell
+def md_all_pairs():
+    mo.md(r"""
+    ## Every pairing, not just Wasm against containers
+
+    The table above answers the thesis question, but the model is indifferent to
+    which two variants are compared, and the container-only pairs are the choice
+    an operator actually faces. One of them matters for the discussion:
+    `oci-node` rests more expensively than `oci-axum` but serves more cheaply, so
+    the two cross *inside* the range the figure plots rather than at an absurd
+    duty cycle.
+
+    Two columns are worth reading carefully. **cheaper_above** is the variant that
+    wins once traffic passes the crossing, and **reachable** says whether that
+    win can be had from a single pod at all: a crossing above the winner's own
+    throughput ceiling is an artefact of extrapolating the model past the load
+    the variant can serve.
+    """)
+    return
+
+
+@app.cell
+def compute_breakeven_all(N_REQUESTS, breakeven_period, dominant_variant, df_base):
+    # `breakeven_period` is symmetric -- swapping the arguments negates both the
+    # numerator and the denominator -- so each unordered pair is computed once.
+    _rows = {r["target"]: r for r in df_base.iter_rows(named=True)}
+    _names = list(_rows)
+
+    _out = []
+    for _i, _a in enumerate(_names):
+        for _b in _names[_i + 1:]:
+            _ra, _rb = _rows[_a], _rows[_b]
+            _T = breakeven_period(_ra, _rb)
+
+            # Below the crossing the day is mostly idle, so the lower resting
+            # draw wins; above it the lower cost per request does. With no
+            # crossing one variant is ahead on both terms at every rate.
+            _low = _a if _ra["idle_power_w"] < _rb["idle_power_w"] else _b
+            _high = _b if _low == _a else _a
+            _rate = None if _T is None else N_REQUESTS / _T
+
+            _out.append({
+                "target_a": _a,
+                "target_b": _b,
+                "breakeven_period_h": None if _T is None else _T / 3600.0,
+                "breakeven_rate_rps": _rate,
+                "breakeven_req_per_day": None if _rate is None else _rate * 86_400.0,
+                "cheaper_below": _low if _T is not None else dominant_variant(_ra, _rb),
+                "cheaper_above": _high if _T is not None else dominant_variant(_ra, _rb),
+                # A crossing the winner cannot actually reach on one pod is a
+                # property of the extrapolation, not of the runtimes.
+                "reachable": None if _T is None else bool(
+                    _rate <= _rows[_high]["effective_rps"]
+                ),
+            })
+
+    df_breakeven_all = pl.DataFrame(_out).sort("breakeven_rate_rps", nulls_last=True)
+    df_breakeven_all
+    return (df_breakeven_all,)
+
+
+@app.cell
+def cheapest_by_rate(N_REQUESTS, SECONDS_PER_DAY, df_base):
+    def energy_per_day(row: dict, rate_rps: float) -> float:
+        """Daily energy to sustain `rate_rps`, idling whatever time is left."""
+        _n = rate_rps * SECONDS_PER_DAY
+        _busy = _n / row["effective_rps"]
+        return (_n * row["total_joules"] / N_REQUESTS
+                + max(SECONDS_PER_DAY - _busy, 0.0) * row["idle_power_w"])
+
+    def cheapest_at(rate_rps: float) -> dict:
+        """Cheapest variant able to serve `rate_rps` from a single pod."""
+        _able = [r for r in df_base.iter_rows(named=True)
+                 if rate_rps <= r["effective_rps"]]
+        if not _able:
+            return {"rate_rps": rate_rps, "target": None, "joules_per_day": None}
+        _best = min(_able, key=lambda r: energy_per_day(r, rate_rps))
+        return {"rate_rps": rate_rps, "target": _best["target"],
+                "joules_per_day": energy_per_day(_best, rate_rps)}
+
+    # Log-spaced sweep: which runtime an operator should pick at each rate. This
+    # is what backs the claim in 7.1.5 that `oci-node` owns the middle of the
+    # range rather than winning only briefly.
+    _sweep = [0.001 * 10 ** (_i / 4) for _i in range(0, 25)]
+    df_cheapest = pl.DataFrame([cheapest_at(_r) for _r in _sweep])
+    df_cheapest
+    return cheapest_at, df_cheapest, energy_per_day
 
 
 @app.cell

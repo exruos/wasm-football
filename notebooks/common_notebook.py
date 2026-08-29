@@ -59,7 +59,12 @@ with app.setup:
     )
 
     # Labels identifying one k6 route series, used to de-duplicate per-route gauges.
-    ROUTE_LABEL_COLUMNS = ("url",)
+    # This is SERIES_LABEL_COLUMNS minus `stage` (the label that genuinely repeats
+    # a reading) and minus the pod/zone labels, which k6 route gauges do not carry.
+    # `status`/`expected_response` MUST stay in the key: a route that times out
+    # reports a second, distinct series under the same url, and collapsing on url
+    # alone keeps an arbitrary one of the two and discards the rest of the traffic.
+    ROUTE_LABEL_COLUMNS = ("url", "name", "scenario", "status", "expected_response")
 
     # Metrics k6 reports per route: the cluster figure is the SUM over routes.
     PER_ROUTE_METRICS = {"rps"}

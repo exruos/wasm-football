@@ -1375,7 +1375,7 @@ def chart_helpers(
         )
 
         title = {
-            "text": f"RAPL Energy Breakdown — {WINDOW_LABELS[window]}",
+            "text": f"RAPL Energy Breakdown - {WINDOW_LABELS[window]}",
             "subtitle": "Mean joules per run across 10 iterations",
         }
 
@@ -1453,7 +1453,7 @@ def chart_helpers(
             width=320,
             height=190,
             title={
-                "text": f"Energy Efficiency — {WINDOW_LABELS[window]}",
+                "text": f"Energy Efficiency - {WINDOW_LABELS[window]}",
                 "subtitle": (
                     "Total RAPL joules per 10k successful requests"
                     if successful_only
@@ -1611,6 +1611,7 @@ def chart_helpers(
         ]
 
         layers = list(guides)
+        err_layers: list = []
 
         if frontier is not None and len(frontier) > 1:
             layers.append(
@@ -1620,8 +1621,8 @@ def chart_helpers(
             )
 
         if x_err:
-            layers.append(
-                base.mark_rule(opacity=0.5).encode(
+            err_layers.append(
+                base.mark_rule(opacity=1.0, strokeWidth=2.2).encode(
                     y=y_enc,
                     x=alt.X(f"{x}_lo:Q", title=x_title),
                     x2=f"{x}_hi:Q",
@@ -1629,8 +1630,8 @@ def chart_helpers(
                 )
             )
         if y_err:
-            layers.append(
-                base.mark_rule(opacity=0.5).encode(
+            err_layers.append(
+                base.mark_rule(opacity=1.0, strokeWidth=2.2).encode(
                     x=x_enc,
                     y=alt.Y(f"{y}_lo:Q", title=y_title),
                     y2=f"{y}_hi:Q",
@@ -1638,7 +1639,7 @@ def chart_helpers(
                 )
             )
 
-        points = base.mark_point(size=160, filled=True, opacity=0.95).encode(
+        points = base.mark_point(size=55, filled=True, opacity=0.95).encode(
             x=x_enc,
             y=y_enc,
             color=target_color(),
@@ -1653,7 +1654,7 @@ def chart_helpers(
         )
 
         return (
-            alt.layer(*layers, points, labels)
+            alt.layer(*layers, points, *err_layers, labels)
             .properties(width=width, height=height, title={"text": title, "subtitle": subtitle})
             .resolve_scale(color="shared")
         )
