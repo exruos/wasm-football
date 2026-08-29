@@ -488,7 +488,7 @@ def chart_helpers(
         ascending: bool = True,
     ) -> alt.Chart:
         """
-        Horizontal bar per target with +/-1 sd whiskers, ordered best-first.
+        Horizontal bar per target with +/-1 SD whiskers, ordered best-first.
         `ascending=True` means lower values rank first (time, energy, latency).
         """
         df_plot = _err_bounds(df_summary, column).sort(column, descending=not ascending)
@@ -529,7 +529,7 @@ def chart_helpers(
             df_summary,
             "duration_s",
             title="Time to complete 100 000 requests",
-            subtitle="Mean of 10 runs, +/-1 sd. Lower is better",
+            subtitle="Mean of 10 runs, +/-1 SD. Lower is better",
             x_title="Duration (s)",
         )
 
@@ -893,7 +893,7 @@ def chart_helpers(
             ],
         )
 
-        band_note = "min-max across runs" if band == "minmax" else "mean +/-1 sd across runs"
+        band_note = "min-max across runs" if band == "minmax" else "mean +/-1 SD across runs"
         return (area + line).properties(
             width=CHART_WIDTH,
             height=CHART_HEIGHT,
@@ -990,7 +990,7 @@ def chart_helpers(
         legend: bool = True,
     ) -> alt.Chart:
         """Shared scaffold: labeled point per target, median quadrant guides,
-        optional +/-1 sd whiskers and a Pareto frontier line."""
+        optional +/-1 SD whiskers and a Pareto frontier line."""
         x_enc = alt.X(
             f"{x}:Q",
             title=x_title,
@@ -1068,7 +1068,7 @@ def chart_helpers(
             x_title="Effective throughput (req/s)",
             y_title="Energy cost (J per 10k requests) - log scale",
             title="Energy cost vs. throughput",
-            subtitle="Bottom-right is better. Dashed line = Pareto frontier. Run-to-run spread (+/-1 sd) is drawn but smaller than the marker on every target",
+            subtitle="Bottom-right is better. Dashed line = Pareto frontier. Run-to-run spread (+/-1 SD) is drawn but smaller than the marker on every target",
             y_log=True,
             frontier=frontier,
             x_err=True,

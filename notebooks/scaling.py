@@ -1217,7 +1217,7 @@ def chart_helpers(
     ) -> pl.DataFrame:
         """
         Long-form frame with the across-iteration mean per time bin plus a variance
-        band: "std" (mean ± 1 sd) or "minmax" (full envelope across the 10 runs).
+        band: "std" (mean ± 1 SD) or "minmax" (full envelope across the 10 runs).
         bin_seconds=0 disables resampling and keeps the raw sample rate.
         """
         parts = []
@@ -1305,7 +1305,7 @@ def chart_helpers(
         )
 
         layers = [window_bands(), area, line] if show_windows else [area, line]
-        band_note = "min-max across runs" if band == "minmax" else "mean ± 1 sd across runs"
+        band_note = "min-max across runs" if band == "minmax" else "mean ± 1 SD across runs"
 
         return (
             alt.layer(*layers)
@@ -1444,7 +1444,7 @@ def chart_helpers(
             tooltip=[
                 alt.Tooltip("target:N", title="Target"),
                 alt.Tooltip("efficiency_mean:Q", title="J / 10k req", format=".2f"),
-                alt.Tooltip("efficiency_std:Q", title="sd", format=".2f"),
+                alt.Tooltip("efficiency_std:Q", title="SD", format=".2f"),
             ],
         )
         errors = base.mark_errorbar().encode(x=alt.X("lo:Q", title=""), x2="hi:Q")
@@ -1556,7 +1556,7 @@ def chart_helpers(
                 alt.Tooltip("target:N", title="Target"),
                 alt.Tooltip("window_label:N", title="Window"),
                 alt.Tooltip("mean:Q", title="Mean", format=".2f"),
-                alt.Tooltip("std:Q", title="sd", format=".2f"),
+                alt.Tooltip("std:Q", title="SD", format=".2f"),
             ],
         )
         errors = base.mark_errorbar().encode(y=alt.Y("lo:Q", title=""), y2="hi:Q")
@@ -1684,7 +1684,7 @@ def chart_helpers(
             x_title="Throughput (req/s)",
             y_title="Energy cost (J per 10k requests)",
             title=f"Energy cost vs. throughput - {WINDOW_LABELS[window]}",
-            subtitle="Bottom-right is better: more work per joule. Dashed line = Pareto frontier, whiskers = +/-1 sd",
+            subtitle="Bottom-right is better: more work per joule. Dashed line = Pareto frontier, whiskers = +/-1 SD",
             y_log=y_log,
             frontier=frontier,
             x_err="rps",
@@ -1714,7 +1714,7 @@ def chart_helpers(
             x_title="Throughput (req/s)",
             y_title="Requests served per joule",
             title=f"Work per joule vs. throughput - {WINDOW_LABELS[window]}",
-            subtitle="Top-right is better: fast and cheap. Dashed line = Pareto frontier, whiskers = +/-1 sd",
+            subtitle="Top-right is better: fast and cheap. Dashed line = Pareto frontier, whiskers = +/-1 SD",
             frontier=frontier,
             x_err="rps",
             y_err="requests_per_joule",
@@ -1917,7 +1917,7 @@ def chart_helpers(
                     alt.Tooltip("route:N", title="Route"),
                     alt.Tooltip("category:N", title="Category"),
                     alt.Tooltip("p95_ms:Q", format=".3f", title="P95 (ms)"),
-                    alt.Tooltip("p95_sd:Q", format=".3f", title="sd"),
+                    alt.Tooltip("p95_sd:Q", format=".3f", title="SD"),
                 ],
             )
             .properties(
@@ -1957,7 +1957,7 @@ def chart_helpers(
                     alt.Tooltip("route:N", title="Route"),
                     alt.Tooltip("category:N", title="Category"),
                     alt.Tooltip("p95_ms:Q", format=".3f", title="P95 (ms)"),
-                    alt.Tooltip("p95_sd:Q", format=".3f", title="sd"),
+                    alt.Tooltip("p95_sd:Q", format=".3f", title="SD"),
                 ],
             )
             .properties(
@@ -2283,7 +2283,7 @@ def md_ts_rps():
     mo.md(r"""
     ### Throughput over time
 
-    Mean across the 10 iterations with a +/-1 sd band, summed over all seven routes;
+    Mean across the 10 iterations with a +/-1 SD band, summed over all seven routes;
     shaded regions mark the load stages. The step at each VU increase is visible for the
     container targets but not for `wasm-js`, which is already saturated during the first
     ramp and *loses* throughput once the load reaches 100 VUs.

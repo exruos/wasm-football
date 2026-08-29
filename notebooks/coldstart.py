@@ -562,7 +562,7 @@ def chart_helpers():
                 alt.Tooltip("target:N", title="Target"),
                 alt.Tooltip("duration_mean_s:Q", title="Mean (s)", format=".2f"),
                 alt.Tooltip("duration_median_s:Q", title="Median (s)", format=".2f"),
-                alt.Tooltip("duration_std_s:Q", title="sd (s)", format=".2f"),
+                alt.Tooltip("duration_std_s:Q", title="SD (s)", format=".2f"),
                 alt.Tooltip("n_cold_runs:Q", title="Runs"),
             ],
         )
@@ -810,7 +810,7 @@ def chart_helpers():
             height=260,
             title={
                 "text": "How cold-start energy accumulates",
-                "subtitle": "Cumulative node energy above the idle baseline, mean of 30 runs +/-1 sd. Triangle = mean time of first HTTP 200",
+                "subtitle": "Cumulative node energy above the idle baseline, mean of 30 runs +/-1 SD. Triangle = mean time of first HTTP 200",
             },
         )
 
@@ -823,7 +823,7 @@ def chart_helpers():
     ) -> alt.Chart:
         """
         Node power from the moment the request is issued: the cold-start spike over
-        the idle baseline, averaged across runs with a +/-1 sd band.
+        the idle baseline, averaged across runs with a +/-1 SD band.
         """
         df_plot = df_timeline.filter((pl.col("zone") == zone) & (pl.col("t_bin") <= horizon_s))
         idle_total = df_baseline["idle_power_w"].sum() if zone == "total" else (
@@ -862,7 +862,7 @@ def chart_helpers():
             height=240,
             title={
                 "text": "Node power during a cold start",
-                "subtitle": "Mean of 30 runs +/-1 sd; dashed line = idle node with zero application pods",
+                "subtitle": "Mean of 30 runs +/-1 SD; dashed line = idle node with zero application pods",
             },
         )
 
@@ -963,7 +963,7 @@ def chart_helpers():
             height=230,
             title={
                 "text": "Measurement noise floor",
-                "subtitle": f"{noise['n_windows']} idle-only windows, sd {noise['noise_sd_j']:.1f} J. Vertical lines = measured per-target means",
+                "subtitle": f"{noise['n_windows']} idle-only windows, SD {noise['noise_sd_j']:.1f} J. Vertical lines = measured per-target means",
             },
         )
 
