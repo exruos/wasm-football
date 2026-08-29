@@ -17,6 +17,7 @@ with app.setup:
         load_metric_data,
         load_scenario_metrics,
         save_chart,
+        t_critical,
         target_color,
         target_rank,
         thesis_chart,
@@ -279,8 +280,10 @@ def processing_helpers():
     def noise_thresholds(df_noise: pl.DataFrame, n_runs: int = COLDSTART_REPETITIONS) -> dict:
         """
         Detection limits derived from the null distribution:
-          single_run_*  - 95 % interval for one measurement
-          mean_2se      - the smallest mean excess resolvable by averaging n_runs
+          single_run_*     - 95 % interval for one measurement, read off the
+                             empirical quantiles rather than assumed normal
+          mean_resolution  - the smallest mean excess resolvable by averaging
+                             n_runs, at the same 95 % confidence
         """
         excess = df_noise["excess_j"]
         sd = excess.std()
@@ -289,7 +292,7 @@ def processing_helpers():
             "noise_sd_j": sd,
             "single_run_lo_j": excess.quantile(0.025),
             "single_run_hi_j": excess.quantile(0.975),
-            "mean_2se_j": 2 * sd / (n_runs ** 0.5),
+            "mean_resolution_j": t_critical(n_runs) * sd / (n_runs ** 0.5),
             "n_windows": len(excess),
         }
 
@@ -385,12 +388,20 @@ def processing_helpers():
             .with_columns([
                 (pl.col("excess_std_j") / pl.col("n_energy_runs").sqrt()).alias("excess_sem_j"),
                 (pl.col("duration_std_s") / pl.col("n_cold_runs").sqrt()).alias("duration_sem_s"),
+                # The critical value is taken per target rather than once, because
+                # excluded repetitions leave the targets with different counts.
+                pl.col("n_energy_runs").map_elements(
+                    t_critical, return_dtype=pl.Float64
+                ).alias("excess_t_crit"),
+                pl.col("n_cold_runs").map_elements(
+                    t_critical, return_dtype=pl.Float64
+                ).alias("duration_t_crit"),
             ])
             .with_columns([
-                (pl.col("excess_mean_j") - 1.96 * pl.col("excess_sem_j")).alias("excess_ci_lo_j"),
-                (pl.col("excess_mean_j") + 1.96 * pl.col("excess_sem_j")).alias("excess_ci_hi_j"),
-                (pl.col("duration_mean_s") - 1.96 * pl.col("duration_sem_s")).alias("duration_ci_lo_s"),
-                (pl.col("duration_mean_s") + 1.96 * pl.col("duration_sem_s")).alias("duration_ci_hi_s"),
+                (pl.col("excess_mean_j") - pl.col("excess_t_crit") * pl.col("excess_sem_j")).alias("excess_ci_lo_j"),
+                (pl.col("excess_mean_j") + pl.col("excess_t_crit") * pl.col("excess_sem_j")).alias("excess_ci_hi_j"),
+                (pl.col("duration_mean_s") - pl.col("duration_t_crit") * pl.col("duration_sem_s")).alias("duration_ci_lo_s"),
+                (pl.col("duration_mean_s") + pl.col("duration_t_crit") * pl.col("duration_sem_s")).alias("duration_ci_hi_s"),
             ])
             .sort([target_rank()])
         )
@@ -685,7 +696,7 @@ def chart_helpers():
                 .mark_rect(opacity=0.12, color="#666")
                 .encode(x=alt.X("lo:Q", title="Cold-start energy (J above idle)"), x2="hi:Q")
             )
-            threshold = pl.DataFrame({"v": [noise["mean_2se_j"]]})
+            threshold = pl.DataFrame({"v": [noise["mean_resolution_j"]]})
             layers.append(
                 alt.Chart(threshold)
                 .mark_rule(strokeDash=[5, 4], color="#444")
@@ -1024,7 +1035,7 @@ def analysis(
               f"(package {df_idle_baseline.filter(pl.col('zone') == 'package')['idle_power_w'][0]:.2f} W + "
               f"dram {df_idle_baseline.filter(pl.col('zone') == 'dram')['idle_power_w'][0]:.2f} W). "
               f"Noise floor: sd **{noise['noise_sd_j']:.1f} J** per single measurement, "
-              f"resolution of the 30-run mean **{noise['mean_2se_j']:.1f} J**."),
+              f"resolution of the 30-run mean **{noise['mean_resolution_j']:.1f} J**."),
     ])
     return (
         df_coldstart_energy,

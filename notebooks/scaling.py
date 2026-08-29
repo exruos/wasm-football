@@ -20,6 +20,7 @@ with app.setup:
         variant_color_scale,
         pareto_frontier,
         pod_joules_increments,
+        welch_delta,
         save_chart,
         series_key,
         target_color,
@@ -372,6 +373,7 @@ def processing_helpers():
                 pl.col("joules_per_10k_requests").std().alias("efficiency_std"),
                 pl.col("joules_per_10k_successful_requests").mean().alias("efficiency_ok_mean"),
                 pl.col("joules_per_10k_successful_requests").std().alias("efficiency_ok_std"),
+                pl.len().alias("n_iterations"),
             ])
             .sort(["target", "window"])
         )
@@ -759,10 +761,10 @@ def processing_helpers():
         """
         Paired A/B of a deployment variant against its baseline.
 
-        Returns (per_route, summary). `significant` marks deltas larger than the sum
-        of both standard deviations; anything inside that band is run-to-run noise.
-        The summary carries the same sd columns for the cluster-level metrics so the
-        energy and memory deltas can be judged against the same rule.
+        Returns (per_route, summary). `significant` is Welch's two-sided test at
+        alpha = 0.05 on the difference of the two run means, and `ci_low`/`ci_high`
+        bound that difference. The summary carries sd and n for every cluster-level
+        metric so the energy and memory deltas can be judged by the same test.
         """
         baseline = VARIANT_OF[variant]
 
@@ -774,15 +776,25 @@ def processing_helpers():
             ["route", "p95_ms", "p95_sd", "n_iterations"]
         ).rename({"p95_ms": "variant_ms", "p95_sd": "variant_sd", "n_iterations": "variant_n"})
 
+        joined_routes = base_l.join(var_l, on="route", how="inner")
+        stats = pl.DataFrame(
+            [
+                welch_delta(
+                    r["baseline_ms"], r["baseline_sd"], r["baseline_n"],
+                    r["variant_ms"], r["variant_sd"], r["variant_n"],
+                )
+                for r in joined_routes.to_dicts()
+            ],
+            schema={
+                "delta": pl.Float64, "se": pl.Float64, "t": pl.Float64, "df": pl.Float64,
+                "p": pl.Float64, "ci_low": pl.Float64, "ci_high": pl.Float64,
+                "significant": pl.Boolean,
+            },
+        ).rename({"delta": "delta_ms"})
         per_route = (
-            base_l.join(var_l, on="route", how="inner")
-            .with_columns([
-                (pl.col("variant_ms") - pl.col("baseline_ms")).alias("delta_ms"),
-                ((pl.col("variant_ms") - pl.col("baseline_ms")) / pl.col("baseline_ms") * 100).alias("delta_pct"),
-                (pl.col("baseline_sd") + pl.col("variant_sd")).alias("noise_band"),
-            ])
+            joined_routes.hstack(stats)
             .with_columns(
-                (pl.col("delta_ms").abs() > pl.col("noise_band")).alias("significant")
+                (pl.col("delta_ms") / pl.col("baseline_ms") * 100).alias("delta_pct")
             )
             .sort("baseline_ms", descending=True)
         )
@@ -795,6 +807,7 @@ def processing_helpers():
             return per_iter.group_by("target").agg([
                 pl.col("v").mean().alias(alias),
                 pl.col("v").std().alias(f"{alias}_sd"),
+                pl.len().alias(f"{alias}_n"),
             ])
 
         # Energy is only comparable if the variant run actually captured RAPL data.
@@ -806,6 +819,8 @@ def processing_helpers():
                 pl.col("total_std").alias("joules_total_sd"),
                 pl.col("efficiency_mean").alias("joules_per_10k_req"),
                 pl.col("efficiency_std").alias("joules_per_10k_req_sd"),
+                pl.col("n_iterations").alias("joules_total_n"),
+                pl.col("n_iterations").alias("joules_per_10k_req_n"),
             ])
         else:
             energy = pl.DataFrame(schema={"target": pl.String})
@@ -815,6 +830,8 @@ def processing_helpers():
             pl.col("per_pod").std().alias("memory_per_pod_mb_sd"),
             pl.col("cluster").mean().alias("memory_cluster_mb"),
             pl.col("cluster").std().alias("memory_cluster_mb_sd"),
+            pl.len().alias("memory_per_pod_mb_n"),
+            pl.len().alias("memory_cluster_mb_n"),
         ])
 
         summary = (
@@ -839,8 +856,9 @@ def processing_helpers():
     def compare_variant_deltas(df_variant_summary: pl.DataFrame, variant: str) -> pl.DataFrame:
         """
         Long-form baseline/variant/delta view of the cluster-level summary metrics,
-        each judged against the combined standard deviations of both runs - the same
-        rule the per-route table uses.
+        each judged by Welch's test on the difference of the two run means - the same
+        rule the per-route table uses. A metric without an sd column (single
+        aggregate, no per-iteration spread) is reported without a verdict.
         """
         baseline = VARIANT_OF[variant]
         metrics = [
@@ -858,11 +876,19 @@ def processing_helpers():
                 continue
             _get = lambda t, c: df_variant_summary.filter(pl.col("target") == t)[c].item()
             b, v = _get(baseline, col), _get(variant, col)
-            sd_col = f"{col}_sd"
-            band = (
-                _get(baseline, sd_col) + _get(variant, sd_col)
-                if sd_col in df_variant_summary.columns
-                else None
+            sd_col, n_col = f"{col}_sd", f"{col}_n"
+            has_spread = (
+                sd_col in df_variant_summary.columns
+                and n_col in df_variant_summary.columns
+            )
+            stat = (
+                welch_delta(
+                    b, _get(baseline, sd_col), _get(baseline, n_col),
+                    v, _get(variant, sd_col), _get(variant, n_col),
+                )
+                if has_spread
+                else {k: None for k in
+                      ("se", "t", "df", "p", "ci_low", "ci_high", "significant")}
             )
             rows.append({
                 "metric": label,
@@ -870,8 +896,14 @@ def processing_helpers():
                 "variant": v,
                 "delta": v - b,
                 "delta_pct": (v - b) / b * 100 if b else None,
-                "noise_band": band,
-                "significant": abs(v - b) > band if band is not None else None,
+                "baseline_sd": _get(baseline, sd_col) if has_spread else None,
+                "variant_sd": _get(variant, sd_col) if has_spread else None,
+                "ci_low": stat["ci_low"],
+                "ci_high": stat["ci_high"],
+                "t": stat["t"],
+                "df": stat["df"],
+                "p": stat["p"],
+                "significant": stat["significant"],
             })
         return pl.DataFrame(rows)
 
@@ -2049,7 +2081,7 @@ def chart_helpers(
                     alt.Tooltip("route:N", title="Route"),
                     alt.Tooltip("build:N", title="Build"),
                     alt.Tooltip("p95_ms:Q", format=".3f", title="P95 (ms)"),
-                    alt.Tooltip("significant:N", title="Outside noise band"),
+                    alt.Tooltip("significant:N", title="Resolved (p < 0.05)"),
                 ],
             )
         )
@@ -2059,7 +2091,7 @@ def chart_helpers(
             height=210,
             title={
                 "text": f"{baseline} vs {variant}: steady-state P95 per route",
-                "subtitle": "Dot pairs joined per route; a shift left means the componentized build is faster",
+                "subtitle": "Dot pairs joined per route; a shift left means the componentized build is faster. Welch's test per route, alpha = 0.05",
             },
         )
 
@@ -2707,39 +2739,39 @@ def md_variant_ab():
     the only thing that changed.
 
     Both builds have **10 iterations and full RAPL capture**, so this is a symmetric
-    comparison, and every metric is judged against the same rule as the per-route table: a
-    delta counts only if it exceeds the sum of the two runs' standard deviations. It is
+    comparison, and every metric is judged by the same rule as the per-route table:
+    Welch's two-sided test at alpha = 0.05 on the difference of the two run means. It is
     still reported separately rather than as a seventh target, because every other target
     ships one binary serving all routes, and letting one runtime enter the comparison twice
     would give it two attempts at the Pareto frontier.
 
-    **Componentization measurably helps the small routes.** Four of the seven routes clear
-    the noise band, all in the same direction. This is what the theory predicts: a smaller
-    module resolves and dispatches faster, and on a route where the work itself takes tens
-    of microseconds, that overhead share is large enough to see.
+    **Componentization helps the cheapest routes and hurts two of the mid-cost ones.** Six
+    of the seven routes resolve, but they do not share a direction. The four cheapest gain
+    19-55 %, which is what the theory predicts: a smaller module resolves and dispatches
+    faster, and where the work itself takes tens of microseconds that overhead share is
+    large enough to see. `/match/:id` and `/match/result-table` move the other way by about
+    6 %; only the second of the two is borderline under a Bonferroni correction across the
+    seven routes. The most expensive route, `/match/team/:id`, does not resolve at all.
 
-    **Nothing the aggregate metric can see moves.** Steady p95 shifts well inside its noise
-    band. The other three routes stay inside their bands too, but not all in the same
-    direction - two move the *wrong* way, and one falls short of significance only
-    narrowly - so the gain on the small routes is not uniform. Because `/match/team/:id`
-    owns almost all of the service time, savings of tens of microseconds on the cheap routes
-    cannot surface in the total. Throughput and replica count are likewise unchanged, and
-    both builds hold a perfect check rate.
+    **The aggregate picture is small but not empty.** Because `/match/team/:id` owns almost
+    all of the service time, savings of tens of microseconds on the cheap routes cannot
+    surface in the total. Replica count is unchanged and both builds hold a perfect check
+    rate, but steady p95, throughput and energy per request all move against the
+    componentized build.
 
-    **Energy is a wash.** The difference lands just inside its noise band - the closest call
-    in the table. The honest statement is that componentization did not measurably change
-    energy per request at this workload, not that it is free: the point estimate moves the
-    wrong way, and separating a difference that small from zero would need more iterations
-    than this.
+    **Energy is not a wash, but the penalty is small.** Energy per 10k requests rises by
+    about 2 %, and throughput falls by under 2 %; both resolve at ten iterations, and both
+    survive a Bonferroni correction across the metrics in the table. Total energy over the
+    window does not move, which is consistent: the componentized build spends slightly more
+    energy per unit of work because it completes slightly less work for the same power.
 
-    **It costs memory, and that is the one unambiguous result.** Resident memory per replica
-    and cluster total both rise by more than three times their noise band, because each pod
-    instantiates three components instead of one - by a wide margin the largest effect in
-    the experiment.
+    **It costs memory, and that is by far the largest effect.** Resident memory per replica
+    and cluster total both rise by about 36-38 %, because each pod instantiates three
+    components instead of one.
 
     **Conclusion:** at this workload, component granularity buys tens of microseconds on
-    routes that were already fast, changes nothing measurable in aggregate latency,
-    throughput or energy, and costs memory per replica. The effect on the small routes is
+    routes that were already fast, costs about 2 % in energy per unit of work and 16 MiB of
+    resident memory per replica, and leaves aggregate latency unresolved. The effect on the small routes is
     real and correctly signed, so the mechanism is doing what it should - it simply has no
     leverage on a steady mixed load whose cost is concentrated in one database-heavy route.
     Componentization should be argued for cold-start-dominated or independently-scaled
@@ -2765,7 +2797,7 @@ def variant_ab(
         df_variant_deltas,
         df_variant_routes.select([
             "route", "category", "baseline_ms", "variant_ms",
-            "delta_ms", "delta_pct", "noise_band", "significant"
+            "delta_ms", "delta_pct", "ci_low", "ci_high", "p", "significant"
         ]),
         df_variant_summary,
     ])

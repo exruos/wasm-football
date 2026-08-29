@@ -5,11 +5,13 @@ app = marimo.App(width="medium")
 
 with app.setup:
     import glob
+    import math
     import re
     from pathlib import Path
 
     import altair as alt
     import polars as pl
+    from scipy import stats
 
     # Canonical target ordering and palette. Every notebook derives its ordering
     # and colors from these, so a target keeps one identity across all figures.
@@ -424,6 +426,77 @@ def pareto_frontier(
             frontier.append(row)
             best = value
     return pl.DataFrame(frontier).sort(x)
+
+
+@app.function
+def t_critical(n: float, conf: float = 0.95) -> float:
+    """
+    Two-sided critical value of Student's t for a mean of `n` observations.
+
+    Used for confidence intervals on a single mean. The normal 1.96 is only the
+    limit of this value for large samples; at the repetition counts used here it
+    understates the interval by a few percent.
+    """
+    if n is None or n < 2:
+        return float("nan")
+    return float(stats.t.ppf(0.5 + conf / 2.0, n - 1))
+
+
+@app.function
+def welch_delta(
+    mean_a: float, sd_a: float, n_a: float,
+    mean_b: float, sd_b: float, n_b: float,
+    conf: float = 0.95,
+) -> dict:
+    """
+    Welch's unequal-variance comparison of two run means, B against A.
+
+    Returns the difference, its standard error, t, the Welch-Satterthwaite degrees
+    of freedom, the two-sided p-value and a confidence interval on the difference.
+    `significant` is p < 1 - conf, i.e. the interval excludes zero.
+
+    Welch rather than Student, because two builds of the same service have no
+    reason to share a variance: the dispersion of a run is a property of the build
+    being measured. The summary form is used rather than `ttest_ind` on the raw
+    runs because every caller already holds the per-target mean, standard
+    deviation and count.
+    """
+    delta = mean_b - mean_a
+    out = {
+        "delta": delta,
+        "se": None, "t": None, "df": None, "p": None,
+        "ci_low": None, "ci_high": None, "significant": None,
+    }
+    if None in (sd_a, sd_b, n_a, n_b) or n_a < 2 or n_b < 2:
+        return out
+
+    va, vb = sd_a * sd_a / n_a, sd_b * sd_b / n_b
+    se = math.sqrt(va + vb)
+    if se == 0.0:
+        out.update({"se": 0.0, "ci_low": delta, "ci_high": delta,
+                    "significant": delta != 0.0})
+        return out
+
+    result = stats.ttest_ind_from_stats(
+        mean1=mean_b, std1=sd_b, nobs1=n_b,
+        mean2=mean_a, std2=sd_a, nobs2=n_a,
+        equal_var=False,
+    )
+    # ttest_ind_from_stats reports t and p but not the degrees of freedom it used,
+    # so the Welch-Satterthwaite value is recomputed here for the interval and for
+    # the record in the exported table.
+    df = (va + vb) ** 2 / (va * va / (n_a - 1) + vb * vb / (n_b - 1))
+    crit = float(stats.t.ppf(0.5 + conf / 2.0, df))
+    out.update({
+        "se": se,
+        "t": float(result.statistic),
+        "df": df,
+        "p": float(result.pvalue),
+        "ci_low": delta - crit * se,
+        "ci_high": delta + crit * se,
+        "significant": float(result.pvalue) < (1.0 - conf),
+    })
+    return out
 
 
 @app.function
