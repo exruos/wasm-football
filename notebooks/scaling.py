@@ -1924,8 +1924,6 @@ def chart_helpers(
         return (bars + designed).properties(
             # The route labels are wider than the left padding Vega computes for
             # them, so the leading "/" was cut off at the SVG edge on export.
-            # The extra room is taken out of the plot, which keeps the exported
-            # box - and therefore the figure size in the thesis - unchanged.
             padding={"left": 19, "top": 5, "right": 5, "bottom": 5},
             width=346,
             height=210,
@@ -2045,9 +2043,8 @@ def chart_helpers(
                 ],
             )
             .properties(
-                # The longest route name in the legend overran the right edge of
-                # the exported SVG; the room comes out of the plot so the box is
-                # unchanged.
+                # The longest route name in the legend overran the right edge
+                # of the exported SVG.
                 padding={"left": 5, "top": 5, "right": 19, "bottom": 5},
                 width=416,
                 height=200,

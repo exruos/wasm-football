@@ -874,8 +874,6 @@ def chart_helpers():
         )
 
         return (band + line + baseline_rule).properties(
-            # 626 keeps the exported SVG at the same 767 px width it had while the
-            # y-axis still carried a negative "-100" label.
             width=626,
             height=234,
             title={
@@ -956,8 +954,6 @@ def chart_helpers():
         return (
             alt.layer(*layers)
             .properties(
-                # The legend costs the width the plot gives up here, so the
-                # exported SVG keeps the box the thesis lays out around it.
                 width=356,
                 height=330,
                 title={

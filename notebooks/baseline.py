@@ -445,14 +445,9 @@ def chart_helpers(
 ):
     # Altair visualization helpers - every target encoding uses color_scale()
     # -------------------------------------------------------------------------
-    # Narrower than the plot alone would need: the time-series charts carry a
-    # target legend on the right, and the width given up here is what the legend
-    # takes, so the exported SVG keeps the box the thesis lays out around it.
+    # Size for reading in the notebook. The p95 chart is the only one of these
+    # that goes into the thesis, and there THESIS_FIGURE_PLOT overrides both.
     CHART_WIDTH = 535
-    # Taller than the other panels need: the p95 chart is the one that goes into
-    # the thesis, where it sat in the lower half of a page with 2 cm of slack
-    # under it. The extra height goes into the plot, which spreads the six curves
-    # apart on the log axis instead of stacking them in a band.
     CHART_HEIGHT = 260
 
     # Samples arrive every 100 ms; binning to whole seconds keeps the curves
@@ -777,8 +772,6 @@ def chart_helpers(
             # The default tick count collides at this scale: "0.000" and "0.002"
             # print on top of each other at the axis origin.
             x_tick_count=5,
-            # Fewer ticks move the right edge in by a pixel; taken back here so the
-            # exported SVG keeps the box the thesis lays out around it.
             width=381,
         )
 
@@ -1159,8 +1152,6 @@ def chart_helpers(
                 "wasm-js": ("right", -9, -7),
                 "wasm-rust": ("right", -9, -7),
             },
-            # The legend costs the width the plot gives up here, so the exported
-            # SVG keeps the box the thesis lays out around it.
             width=385,
         )
 

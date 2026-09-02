@@ -46,6 +46,59 @@ with app.setup:
     FIGURE_DIR = Path("figures")
     TABLE_DIR = Path("tables")
 
+    # -------------------------------------------------------------------------
+    # Uniform label size across the thesis figures
+    # -------------------------------------------------------------------------
+    # Typst renders each SVG at `width: N%` of the 15 cm text block, so the size a
+    # label PRINTS at is its size in the SVG scaled by (rendered width / SVG
+    # width). A figure exported twice as wide therefore prints its labels at half
+    # the size - which is how the same 11 px axis label ended up printing at
+    # anything between 5.8 pt and 11.5 pt across the document.
+    #
+    # The fix is to give every figure the same *effective* width: its SVG width
+    # divided by the percentage Typst renders it at. THESIS_FIGURE_EFFECTIVE_WIDTH
+    # is that common value, taken from the ranked bar charts, which were already
+    # the right size.
+    #
+    # With the outer box fixed by that rule and the font sizes fixed by
+    # `thesis_chart`, the plot area is whatever is left once the axes, title and
+    # legend have taken their share - which is what THESIS_FIGURE_PLOT holds, one
+    # (width, height) per exported figure. The numbers are calibrated rather than
+    # chosen: they are solved so each SVG comes out at the box the thesis already
+    # lays out around it, which is why changing a chart's axis titles or legend
+    # labels means re-solving its entry. Figures not listed are not in the thesis
+    # and keep whatever size their own chart asked for.
+    THESIS_FIGURE_EFFECTIVE_WIDTH = 466
+
+    # BEGIN THESIS_FIGURE_PLOT
+    THESIS_FIGURE_PLOT: dict[str, tuple[int, int]] = {
+        "baseline_duration": (380, 210),
+        "baseline_energy_domains": (298, 184),
+        "baseline_energy_latency_scatter": (291, 247),
+        "baseline_idle_power": (381, 210),
+        "baseline_p95": (326, 153),
+        "baseline_power_duration_scatter": (291, 227),
+        "baseline_resources": (187, 167),
+        "baseline_run_scatter": (313, 244),
+        "breakeven_energy_vs_rate": (317, 158),
+        "coldstart_duration": (380, 210),
+        "coldstart_duration_ecdf": (318, 174),
+        "coldstart_energy_breakdown": (264, 146),
+        "coldstart_excess_energy": (380, 198),
+        "coldstart_noise_floor": (328, 143),
+        "coldstart_power_timeline": (325, 120),
+        "coldstart_time_energy_scatter": (322, 302),
+        "scaling_efficiency_runs_scatter": (319, 255),
+        "scaling_energy_efficiency": (380, 229),
+        "scaling_energy_latency_scatter": (303, 229),
+        "scaling_memory_energy_scatter": (282, 227),
+        "scaling_request_mix_validation": (225, 151),
+        "scaling_route_latency_heatmap": (219, 186),
+        "scaling_service_time_share": (259, 131),
+        "scaling_work_per_joule_scatter": (297, 236),
+    }
+    # END THESIS_FIGURE_PLOT
+
     # Every label that can split a metric into separate time series. Counters must
     # be differenced per series - see series_key().
     SERIES_LABEL_COLUMNS = (
@@ -528,6 +581,11 @@ def save_chart(
     Requires vl-convert.
     """
     directory.mkdir(parents=True, exist_ok=True)
+    # Calibrated plot area, so this figure prints its labels at the same size as
+    # every other figure in the thesis - see THESIS_FIGURE_PLOT.
+    if name in THESIS_FIGURE_PLOT:
+        plot_w, plot_h = THESIS_FIGURE_PLOT[name]
+        chart = chart.properties(width=plot_w, height=plot_h)
     to_save = thesis_chart(chart) if style else chart
     written = []
     for fmt in formats:
