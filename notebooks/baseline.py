@@ -445,8 +445,15 @@ def chart_helpers(
 ):
     # Altair visualization helpers - every target encoding uses color_scale()
     # -------------------------------------------------------------------------
-    CHART_WIDTH = 620
-    CHART_HEIGHT = 170
+    # Narrower than the plot alone would need: the time-series charts carry a
+    # target legend on the right, and the width given up here is what the legend
+    # takes, so the exported SVG keeps the box the thesis lays out around it.
+    CHART_WIDTH = 535
+    # Taller than the other panels need: the p95 chart is the one that goes into
+    # the thesis, where it sat in the lower half of a page with 2 cm of slack
+    # under it. The extra height goes into the plot, which spreads the six curves
+    # apart on the log axis instead of stacking them in a band.
+    CHART_HEIGHT = 260
 
     # Samples arrive every 100 ms; binning to whole seconds keeps the curves
     # identical to the eye and keeps exported SVGs small enough to embed in Typst.
@@ -474,6 +481,8 @@ def chart_helpers(
         x_title: str,
         x_log: bool = False,
         ascending: bool = True,
+        x_tick_count: int | None = None,
+        width: int = 380,
     ) -> alt.Chart:
         """
         Horizontal bar per target with +/-1 SD whiskers, ordered best-first.
@@ -487,6 +496,7 @@ def chart_helpers(
             f"{column}:Q",
             title=x_title,
             scale=alt.Scale(type="log", nice=False) if x_log else alt.Scale(),
+            axis=alt.Axis(tickCount=x_tick_count) if x_tick_count else alt.Undefined,
         )
 
         bars = base.mark_bar(opacity=0.9).encode(
@@ -507,7 +517,7 @@ def chart_helpers(
             )
 
         return alt.layer(*layers).properties(
-            width=380, height=210, title={"text": title, "subtitle": subtitle}
+            width=width, height=210, title={"text": title, "subtitle": subtitle}
         )
 
 
@@ -751,13 +761,25 @@ def chart_helpers(
 
 
     def make_idle_power_chart(df_idle_power: pl.DataFrame) -> alt.Chart:
-        """Idle scenario: what a pod costs while doing nothing at all."""
+        """
+        Idle scenario: what a pod costs while doing nothing at all.
+
+        The idle scenario was run once per target, so `idle_power_w_std` is null
+        and `make_ranked_bar_chart` draws no whiskers. The subtitle says so
+        rather than leaving the reader to wonder where the spread went.
+        """
         return make_ranked_bar_chart(
-            df_idle_power.rename({"idle_power_w_std": "idle_power_w_std"}),
+            df_idle_power,
             "idle_power_w",
             title="Idle power draw (no traffic)",
-            subtitle="10-minute idle scenario, mean of all runs. Lower is better",
+            subtitle="One 10-minute idle run per target, so no error bars. Lower is better",
             x_title="Idle power (W)",
+            # The default tick count collides at this scale: "0.000" and "0.002"
+            # print on top of each other at the axis origin.
+            x_tick_count=5,
+            # Fewer ticks move the right edge in by a pixel; taken back here so the
+            # exported SVG keeps the box the thesis lays out around it.
+            width=381,
         )
 
 
@@ -882,10 +904,18 @@ def chart_helpers(
         )
 
         band_note = "min-max across runs" if band == "minmax" else "mean +/-1 SD across runs"
-        return (area + line).properties(
-            width=CHART_WIDTH,
-            height=CHART_HEIGHT,
-            title={"text": metric_title(metric), "subtitle": f"{band_note}, 10 runs"},
+        return (
+            (area + line)
+            .properties(
+                width=CHART_WIDTH,
+                height=CHART_HEIGHT,
+                title={"text": metric_title(metric), "subtitle": f"{band_note}, 10 runs"},
+            )
+            # The band is drawn first and asks for no legend, which on a shared
+            # color scale suppresses the one the line asks for - six unlabelled
+            # coloured curves. Resolving color independently lets the line keep
+            # its legend, as the identical chart in `scaling.py` already does.
+            .resolve_scale(color="independent")
         )
 
 
@@ -976,6 +1006,7 @@ def chart_helpers(
         width: int = 420,
         height: int = 320,
         legend: bool = True,
+        label_offsets: dict[str, tuple[str, int, int]] | None = None,
     ) -> alt.Chart:
         """Shared scaffold: labeled point per target, median quadrant guides,
         optional +/-1 SD whiskers and a Pareto frontier line."""
@@ -1031,12 +1062,27 @@ def chart_helpers(
                 alt.Tooltip(f"{y}:Q", title=y_title, format=",.2f"),
             ],
         )
-        labels = base.mark_text(align="left", dx=9, dy=-7, fontSize=11).encode(
-            x=x_enc, y=y_enc, text="target:N", color=target_color(legend=False)
-        )
+        # Labels sit to the upper right of their marker by default. A point near
+        # the right edge would push its label off the plot, so `label_offsets`
+        # can move individual targets: (anchor side, dx, dy) in pixels.
+        if label_offsets:
+            label_layers = []
+            for label_target in df_plot["target"].to_list():
+                align, dx, dy = label_offsets.get(label_target, ("left", 9, -7))
+                label_layers.append(
+                    base.transform_filter(alt.datum.target == label_target)
+                    .mark_text(align=align, dx=dx, dy=dy, fontSize=11)
+                    .encode(x=x_enc, y=y_enc, text="target:N", color=target_color(legend=False))
+                )
+        else:
+            label_layers = [
+                base.mark_text(align="left", dx=9, dy=-7, fontSize=11).encode(
+                    x=x_enc, y=y_enc, text="target:N", color=target_color(legend=False)
+                )
+            ]
 
         return (
-            alt.layer(*layers, points, *err_layers, labels)
+            alt.layer(*layers, points, *err_layers, *label_layers)
             .properties(width=width, height=height, title={"text": title, "subtitle": subtitle})
             .resolve_scale(color="shared")
         )
@@ -1106,9 +1152,16 @@ def chart_helpers(
             x_log=True,
             y_log=True,
             frontier=frontier,
-            # Every point already carries its target as a text label, and with the
-            # two Wasm points sitting at the right edge the legend overlapped them.
-            legend=False,
+            # The two Wasm points sit at the right edge, where the default
+            # upper-right label ran into the legend. Anchoring those two on the
+            # left of their marker keeps both readable.
+            label_offsets={
+                "wasm-js": ("right", -9, -7),
+                "wasm-rust": ("right", -9, -7),
+            },
+            # The legend costs the width the plot gives up here, so the exported
+            # SVG keeps the box the thesis lays out around it.
+            width=385,
         )
 
 

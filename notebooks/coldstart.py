@@ -931,7 +931,9 @@ def chart_helpers():
             # Far enough right to clear the marker blob it sits inside.
             "oci-node": ("left", 28, 0),
             "oci-axum": ("left", 12, 20),
-            "oci-spring": ("left", 12, -8),
+            # Anchored left of its marker: it is the right-most point, and on the
+            # right of it the label ran into the legend.
+            "oci-spring": ("right", -12, -8),
         }
         for label_target in df_summary["target"].to_list():
             align, dx, dy = label_offsets.get(label_target, ("left", 10, -8))
@@ -951,13 +953,21 @@ def chart_helpers():
             )
         )
 
-        return alt.layer(*layers).properties(
-            width=440,
-            height=330,
-            title={
-                "text": "Cold-start time vs. energy",
-                "subtitle": "Large points = 30-run mean with 95 % CI, small points = individual runs. Bottom-left is best",
-            },
+        return (
+            alt.layer(*layers)
+            .properties(
+                # The legend costs the width the plot gives up here, so the
+                # exported SVG keeps the box the thesis lays out around it.
+                width=356,
+                height=330,
+                title={
+                    "text": "Cold-start time vs. energy",
+                    "subtitle": "Large points = 30-run mean with 95 % CI, small points = individual runs. Bottom-left is best",
+                },
+            )
+            # The per-run points are drawn first and ask for no legend, which on a
+            # shared color scale suppresses the one the mean points ask for.
+            .resolve_scale(color="independent")
         )
 
 
