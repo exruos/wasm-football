@@ -586,7 +586,7 @@ def chart_helpers():
             height=210,
             title={
                 "text": "Cold-start time: request to first HTTP 200",
-                "subtitle": "From zero replicas. Mean of 30 runs with 95 % CI. Lower is better",
+                "subtitle": "From zero replicas. Mean of 30 runs with 95% CI. Lower is better",
             },
         )
 
@@ -731,7 +731,7 @@ def chart_helpers():
                 # Two lines: as a single string the subtitle set the chart width and
                 # left the plot itself stranded in the left half of the image.
                 "subtitle": [
-                    "Bars = mean of 30 runs with 95 % CI. Grey band = 95 % noise range",
+                    "Bars = mean of 30 runs with 95% CI. Grey band = 95% noise range",
                     "of a SINGLE measurement, dashed line = resolution limit of the 30-run mean",
                 ],
             },
@@ -963,7 +963,7 @@ def chart_helpers():
                 height=330,
                 title={
                     "text": "Cold-start time vs. energy",
-                    "subtitle": "Large points = 30-run mean with 95 % CI, small points = individual runs. Bottom-left is best",
+                    "subtitle": "Large points = 30-run mean with 95% CI, small points = individual runs. Bottom-left is best",
                 },
             )
             # The per-run points are drawn first and ask for no legend, which on a
