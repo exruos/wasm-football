@@ -1955,6 +1955,11 @@ def chart_helpers(
                     "p95_ms:Q",
                     title="P95 (ms)",
                     scale=alt.Scale(type="log", scheme="orangered", nice=False),
+                    # Left to itself the colour bar labels the raw domain ends,
+                    # printing them at full float precision (0.0159456369525).
+                    # `nice=False` keeps the scale honest, so the ticks are named
+                    # here instead: one per decade of the 0.016-31 ms range.
+                    legend=alt.Legend(values=[0.1, 1, 10], format="~g"),
                 ),
                 tooltip=[
                     alt.Tooltip("target:N", title="Target"),
