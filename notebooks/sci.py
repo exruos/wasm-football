@@ -34,20 +34,18 @@ def md_intro():
     * `M` share of the hardware's embodied emissions charged to the software
     * `R` the functional unit - one baseline run of 100 000 requests
 
-    **Why only one term can matter.** `I` is a property of the site, not of the
-    software, so `E * I` is a positive constant times the measured energy: it
-    rescales the baseline table without reordering it. For a single deployment
-    location the joule ranking already *is* the operational-carbon ranking.
-
-    `M` is different. It grows with how long a variant occupies the machine, and
-    the cheapest variant by energy is also the slowest by a factor of four. That
-    is the only place where costing carbon rather than joules can change an
-    answer, which is what this notebook quantifies.
-
-    **This is a sensitivity analysis, not a result.** Nothing in `M` was measured
-    by this study. Two parameters are swept and one modelling choice is reported
-    both ways, so the conclusion is a statement about which orderings survive the
-    uncertainty - not a carbon figure for this workload.
+    - **Only one term can matter.** `I` is a property of the site, not of the
+      software, so `E * I` is a positive constant times the measured energy: it
+      rescales the baseline table without reordering it. For a single deployment
+      location the joule ranking already *is* the operational-carbon ranking.
+    - `M` is different. It grows with how long a variant occupies the machine,
+      and the cheapest variant by energy is also the slowest by a factor of four.
+      That is the only place where costing carbon rather than joules can change
+      an answer, which is what this notebook quantifies.
+    - **This is a sensitivity analysis, not a result.** Nothing in `M` was
+      measured by this study. Two parameters are swept and one modelling choice
+      is reported both ways, so the conclusion is a statement about which
+      orderings survive the uncertainty - not a carbon figure for this workload.
     """)
     return
 
@@ -57,27 +55,24 @@ def md_parameters():
     mo.md(r"""
     ## Parameters, and where each comes from
 
-    **TE - embodied emissions of the host.** From the published product carbon
-    footprint of a Dell PowerEdge R360, the closest single-socket rack server
-    with public data: 1 140 kgCO2e mean over a four-year life, 541 at the 5th
-    percentile and 3 905 at the 95th. Only **37 %** of that is embodied
-    (manufacturing 27 %, transport 9 %, end-of-life 1 %). The use phase - 63 % -
-    is deliberately excluded: under SCI that is the `E * I` term, and folding it
-    into TE would count the electricity twice. Getting this wrong inflates TE by
-    ~2.7x and manufactures a ranking change that is not there.
-
-    **I - carbon intensity.** German grid mix, 344 gCO2e/kWh (Umweltbundesamt,
-    2025). The specification requires a *location-based* figure and explicitly
-    forbids market-based instruments, so a hosting provider's renewable-supply
-    contract cannot reduce the score.
-
-    **RS - resource share.** Genuinely ambiguous on a dedicated single-tenant
-    node, so both readings are carried through:
-
-    * `attributed` - each variant is charged its measured CPU share of the 16
-      logical CPUs. Conservative, and the reading a shared cluster would use.
-    * `dedicated` - the whole machine is charged to whichever variant is running,
-      which is what the benchmark host actually reserved for a run.
+    - **TE - embodied emissions of the host.** From the published product carbon
+      footprint of a Dell PowerEdge R360, the closest single-socket rack server
+      with public data: 1 140 kgCO2e mean over a four-year life, 541 at the 5th
+      percentile and 3 905 at the 95th. Only **37 %** of that is embodied
+      (manufacturing 27 %, transport 9 %, end-of-life 1 %). The use phase - 63 %
+      - is deliberately excluded: under SCI that is the `E * I` term, and folding
+      it into TE would count the electricity twice. Getting this wrong inflates
+      TE by ~2.7x and manufactures a ranking change that is not there.
+    - **I - carbon intensity.** German grid mix, 344 gCO2e/kWh (Umweltbundesamt,
+      2025). The specification requires a *location-based* figure and explicitly
+      forbids market-based instruments, so a hosting provider's renewable-supply
+      contract cannot reduce the score.
+    - **RS - resource share.** Genuinely ambiguous on a dedicated single-tenant
+      node, so both readings are carried through:
+        * `attributed` - each variant is charged its measured CPU share of the 16
+          logical CPUs. Conservative, and the reading a shared cluster would use.
+        * `dedicated` - the whole machine is charged to whichever variant is
+          running, which is what the benchmark host actually reserved for a run.
     """)
     return
 
@@ -166,10 +161,12 @@ def md_ordering():
     mo.md(r"""
     ## Which ordering survives the uncertainty?
 
-    The table below reports, for each embodied case and each reading of
-    resource-share, the variant with the lowest score. The WebAssembly variants
-    never appear: they are slow **and** power-hungry, so operational and embodied
-    emissions penalise them together rather than trading off.
+    The table reports, for each embodied case and each reading of resource-share,
+    the variant with the lowest score.
+
+    - The WebAssembly variants never appear: they are slow **and** power-hungry,
+      so operational and embodied emissions penalise them together rather than
+      trading off.
     """)
     return
 
@@ -336,22 +333,22 @@ def md_reading():
     mo.md(r"""
     ## Reading the result
 
-    **The joule ranking is the operational-carbon ranking.** `E * I` cannot
-    reorder anything within one site, so nothing in the baseline chapter needs
-    restating in grams for the comparison to hold.
-
-    **One pairing is undetermined.** On energy `oci-node` leads `oci-axum` by
-    40 %. Charging each variant its measured CPU share, that collapses to under
-    3 %, and the ordering turns over just above the central embodied estimate -
-    inside the published range for a single server model. Charging whole-machine
-    occupancy, `oci-axum` is ahead everywhere and embodied emissions are the
-    large majority of `oci-node`'s score. `oci-node` is the least *energy*;
-    `oci-axum` is the safer choice once the machine's manufacture is counted.
-
-    **The WebAssembly conclusion is untouched.** Both variants remain the two
-    most expensive under every parameterisation, at both extremes of the embodied
-    range and under both readings of resource-share. Costing the hardware as well
-    as the electricity widens the deficit rather than recovering it.
+    - **The joule ranking is the operational-carbon ranking.** `E * I` cannot
+      reorder anything within one site, so nothing in the baseline chapter needs
+      restating in grams for the comparison to hold.
+    - **One pairing is undetermined.** On energy `oci-node` leads `oci-axum` by
+      40 %. Charging each variant its measured CPU share, that collapses to under
+      3 %, and the ordering turns over just above the central embodied estimate -
+      inside the published range for a single server model. Charging
+      whole-machine occupancy, `oci-axum` is ahead everywhere and embodied
+      emissions are the large majority of `oci-node`'s score. `oci-node` is the
+      least *energy*; `oci-axum` is the safer choice once the machine's
+      manufacture is counted.
+    - **The WebAssembly conclusion is untouched.** Both variants remain the two
+      most expensive under every parameterisation, at both extremes of the
+      embodied range and under both readings of resource-share. Costing the
+      hardware as well as the electricity widens the deficit rather than
+      recovering it.
     """)
     return
 

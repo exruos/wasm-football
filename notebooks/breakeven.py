@@ -23,11 +23,11 @@ def md_intro():
     mo.md(r"""
     # Break-even duty cycle
 
-    The baseline and idle scenarios disagree about which runtime is cheapest:
-    under load `oci-node` wins and `wasm-js` is 25x worse, but at rest the
-    ordering inverts - `wasm-js` draws 0.004 W against `oci-spring`'s 0.351 W.
-    Neither ranking is wrong; they answer different questions. This notebook
-    computes the operating point at which the answer changes.
+    Baseline and idle disagree about which runtime is cheapest: under load
+    `oci-node` wins and `wasm-js` is 25x worse, but at rest the ordering inverts
+    - `wasm-js` draws 0.004 W against `oci-spring`'s 0.351 W. Neither ranking is
+    wrong; they answer different questions. This notebook computes the operating
+    point at which the answer changes.
 
     **Model.** A variant serving `N` requests within a period `T` is busy for
     `t = N / r` seconds, where `r` is its single-pod throughput, and idle for the
@@ -37,16 +37,15 @@ def md_intro():
     E(T) = E_active + (T - t) * P_idle
     ```
 
-    `E_active` is the energy of one baseline run (a fixed 100 000 requests) and
-    `P_idle` the resting draw of a deployed pod doing nothing. Equating two
-    variants and solving for `T` gives the period at which they cost the same;
-    dividing `N` by it turns that period into an **average request rate**, which
-    is the form an operator can actually act on.
+    - `E_active` - energy of one baseline run (a fixed 100 000 requests)
+    - `P_idle` - resting draw of a deployed pod doing nothing
+    - Equate two variants, solve for `T`, divide `N` by it -> the break-even
+      **average request rate**, which is the form an operator can act on.
 
-    **What the model assumes.** Work is served at the target's own throughput and
-    the remainder of the period is spent idle at the measured resting draw - no
+    **Assumptions.** Work is served at the target's own throughput and the
+    remainder of the period is spent idle at the measured resting draw: no
     partial load, no scale-to-zero, no cold-start cost per activation. Cold start
-    is deliberately excluded: including it would favour the WebAssembly variants
+    is excluded deliberately - including it would favour the WebAssembly variants
     further, so leaving it out keeps the comparison conservative.
     """)
     return
@@ -162,20 +161,18 @@ def md_table(df_breakeven):
     Below the stated rate the WebAssembly variant is the cheaper choice, above it
     the container variant is.
 
-    **Where the argument works.** Against the JVM the window is narrow but real:
-    `wasm-js` undercuts `oci-spring` below
-    **{_crossing.filter((pl.col('wasm_target') == 'wasm-js') & (pl.col('container_target') == 'oci-spring'))['breakeven_rate_rps'][0]:.2f} req/s**,
-    roughly
-    {_crossing.filter((pl.col('wasm_target') == 'wasm-js') & (pl.col('container_target') == 'oci-spring'))['breakeven_req_per_day'][0]:,.0f}
-    requests a day.
-
-    **Where it fails.** {_dominated.height} pairings have no crossing:
-    {", ".join(f"`{r['wasm_target']}` vs `{r['container_target']}`" for r in _dominated.iter_rows(named=True))}.
-    In each of these the WebAssembly variant draws *more* power at rest **and**
-    more energy per request, so no duty cycle however low makes it the cheaper
-    option. That is the substantive finding: the duty-cycle argument rescues
-    WebAssembly against a heavyweight managed runtime, not against a lean
-    container.
+    - **Where the argument works.** Against the JVM the window is narrow but
+      real: `wasm-js` undercuts `oci-spring` below
+      **{_crossing.filter((pl.col('wasm_target') == 'wasm-js') & (pl.col('container_target') == 'oci-spring'))['breakeven_rate_rps'][0]:.2f} req/s**,
+      roughly
+      {_crossing.filter((pl.col('wasm_target') == 'wasm-js') & (pl.col('container_target') == 'oci-spring'))['breakeven_req_per_day'][0]:,.0f}
+      requests a day.
+    - **Where it fails.** {_dominated.height} pairings have no crossing:
+      {", ".join(f"`{r['wasm_target']}` vs `{r['container_target']}`" for r in _dominated.iter_rows(named=True))}.
+      In each the WebAssembly variant draws *more* power at rest **and** more
+      energy per request, so no duty cycle however low makes it cheaper.
+    - The substantive finding: the duty-cycle argument rescues WebAssembly
+      against a heavyweight managed runtime, not against a lean container.
     """)
     return
 
@@ -185,18 +182,16 @@ def md_all_pairs():
     mo.md(r"""
     ## Every pairing, not just Wasm against containers
 
-    The table above answers the thesis question, but the model is indifferent to
-    which two variants are compared, and the container-only pairs are the choice
-    an operator actually faces. One of them matters for the discussion:
-    `oci-node` rests more expensively than `oci-axum` but serves more cheaply, so
-    the two cross *inside* the range the figure plots rather than at an absurd
-    duty cycle.
+    The model is indifferent to which two variants are compared, and the
+    container-only pairs are the choice an operator actually faces.
 
-    Two columns are worth reading carefully. **cheaper_above** is the variant that
-    wins once traffic passes the crossing, and **reachable** says whether that
-    win can be had from a single pod at all: a crossing above the winner's own
-    throughput ceiling is an artefact of extrapolating the model past the load
-    the variant can serve.
+    - `oci-node` rests more expensively than `oci-axum` but serves more cheaply,
+      so the two cross *inside* the range the figure plots rather than at an
+      absurd duty cycle.
+    - **cheaper_above** - the variant that wins once traffic passes the crossing.
+    - **reachable** - whether that win can be had from a single pod at all. A
+      crossing above the winner's own throughput ceiling is an artefact of
+      extrapolating the model past the load the variant can serve.
     """)
     return
 
@@ -274,12 +269,15 @@ def md_chart():
     mo.md(r"""
     ## Why the crossings sit where they do
 
-    Plotting daily energy against sustained request rate makes the mechanism
-    visible. Each line is flat on the left, where the day is almost entirely idle
-    and the resting draw sets the bill, and rises on the right, where the cost per
-    request dominates. A crossing is where a low-idle, expensive-per-request
-    runtime gives way to a high-idle, cheap-per-request one. Lines stop at the
-    target's own single-pod capacity, so a short line is itself a limitation.
+    Daily energy against sustained request rate makes the mechanism visible.
+
+    - Flat on the left, where the day is almost entirely idle and the resting
+      draw sets the bill.
+    - Rising on the right, where the cost per request dominates.
+    - A crossing is where a low-idle, expensive-per-request runtime gives way to
+      a high-idle, cheap-per-request one.
+    - Lines stop at the target's own single-pod capacity, so a short line is
+      itself a limitation.
     """)
     return
 
@@ -342,18 +340,17 @@ def md_caveats():
     mo.md(r"""
     ## Two limitations
 
-    **The idle figures carry the result.** Because the crossing depends on the
-    *difference* between two small resting draws, it is more sensitive to
-    attribution error than any other number derived from this data. Those draws
-    come from Kepler's per-pod attribution, whose accuracy is contested in the
-    literature; 0.004 W for `wasm-js` is not credible as the true marginal power
-    of keeping a pod resident. Treat the ordering as sound and the exact crossing
-    rate as indicative.
-
-    **Energy is not the only cost of residency.** `oci-spring` holds 705 MB while
-    idle against 132 MB for `wasm-js`. An operator constrained by memory rather
-    than by power reaches a different conclusion from the same measurements, and
-    nothing in this model captures that.
+    - **The idle figures carry the result.** The crossing depends on the
+      *difference* between two small resting draws, so it is more sensitive to
+      attribution error than any other number derived from this data. Those draws
+      come from Kepler's per-pod attribution, whose accuracy is contested in the
+      literature; 0.004 W for `wasm-js` is not credible as the true marginal
+      power of keeping a pod resident. Treat the ordering as sound and the exact
+      crossing rate as indicative.
+    - **Energy is not the only cost of residency.** `oci-spring` holds 705 MB
+      while idle against 132 MB for `wasm-js`. An operator constrained by memory
+      rather than by power reaches a different conclusion from the same
+      measurements, and nothing in this model captures that.
     """)
     return
 

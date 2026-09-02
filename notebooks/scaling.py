@@ -44,9 +44,8 @@ def md_intro():
     A 13-minute k6 scenario replayed **10 times per target**, scraped from Prometheus
     (Kepler RAPL energy, cAdvisor cpu/memory, kube-state replica counts) and k6
     (latency, throughput, request outcomes). Six targets: `oci-axum`, `oci-native`,
-    `oci-node`, `oci-spring`, `wasm-js`, `wasm-rust`.
-
-    Scaling is driven by **KEDA on concurrency = 20**.
+    `oci-node`, `oci-spring`, `wasm-js`, `wasm-rust`. Scaling is driven by **KEDA on
+    concurrency = 20**.
 
     | Window | Range | What it measures |
     | --- | --- | --- |
@@ -1616,14 +1615,22 @@ def chart_helpers(
         y_err: str | None = None,
         width: int = 420,
         height: int = 320,
+        x_min: float | None = None,
     ) -> alt.Chart:
         """Shared scaffold: one labeled point per target, median quadrant guides,
         optional ±1 sd whiskers and a Pareto frontier line."""
-        x_enc = alt.X(
-            f"{x}:Q",
-            title=x_title,
-            scale=alt.Scale(type="log", nice=False) if x_log else alt.Scale(zero=False, padding=30),
-        )
+        # `padding` widens the domain by the equivalent of 30 px on each side, which
+        # runs a strictly positive quantity below zero when the smallest value sits
+        # near the origin. It is applied after `domainMin`, so flooring the axis
+        # means giving the domain outright; the headroom padding would have added
+        # on the right is kept as a 15 % margin.
+        if x_log:
+            x_scale = alt.Scale(type="log", nice=False)
+        elif x_min is not None:
+            x_scale = alt.Scale(domain=[x_min, float(df_plot[x].max()) * 1.15], nice=True)
+        else:
+            x_scale = alt.Scale(zero=False, padding=30)
+        x_enc = alt.X(f"{x}:Q", title=x_title, scale=x_scale)
         y_enc = alt.Y(
             f"{y}:Q",
             title=y_title,
@@ -1769,6 +1776,8 @@ def chart_helpers(
             y_title="Energy per 10 000 requests (J)",
             title=f"Memory footprint vs. energy cost - {WINDOW_LABELS[window]}",
             subtitle="Bottom-left is better on both. The two axes do not order the targets alike",
+            # Memory cannot be negative; without this the padding put the axis at -100 MB.
+            x_min=0,
         )
 
 
@@ -1913,7 +1922,12 @@ def chart_helpers(
         ).encode(x=alt.X("designed_pct:Q", title="Share of all requests (%)"))
 
         return (bars + designed).properties(
-            width=360,
+            # The route labels are wider than the left padding Vega computes for
+            # them, so the leading "/" was cut off at the SVG edge on export.
+            # The extra room is taken out of the plot, which keeps the exported
+            # box - and therefore the figure size in the thesis - unchanged.
+            padding={"left": 19, "top": 5, "right": 5, "bottom": 5},
+            width=346,
             height=210,
             title={
                 "text": "Offered load vs. k6 weighting",
@@ -1953,7 +1967,9 @@ def chart_helpers(
                 ],
             )
             .properties(
-                width=330,
+                # See the padding note on make_request_mix_validation.
+                padding={"left": 19, "top": 5, "right": 5, "bottom": 5},
+                width=316,
                 height=210,
                 title={
                     "text": "Steady-state P95 per route",
@@ -2029,7 +2045,11 @@ def chart_helpers(
                 ],
             )
             .properties(
-                width=430,
+                # The longest route name in the legend overran the right edge of
+                # the exported SVG; the room comes out of the plot so the box is
+                # unchanged.
+                padding={"left": 5, "top": 5, "right": 19, "bottom": 5},
+                width=416,
                 height=200,
                 title={
                     "text": "Where each target spends its service time",
@@ -2087,7 +2107,9 @@ def chart_helpers(
         )
 
         return (connector + points).properties(
-            width=400,
+            # See the padding note on make_request_mix_validation.
+            padding={"left": 19, "top": 5, "right": 5, "bottom": 5},
+            width=386,
             height=210,
             title={
                 "text": f"{baseline} vs {variant}: steady-state P95 per route",
@@ -2133,7 +2155,7 @@ def _(df_scaling, make_rapl_energy_chart, summary_df):
 
     # Create a clean horizontal layout
     mo.vstack([
-        mo.md("## 📊 Steady-State Performance & Energy Summary"),
+        mo.md("## Steady-state performance and energy summary"),
         mo.hstack([
             summary_df.select([
                 "target", "total_mean", "efficiency_mean"
@@ -2185,13 +2207,14 @@ def md_windowed():
     summarizing across iterations - so `std` is **run-to-run** variance, not sample
     noise inside a run.
 
-    **Throughput is stable once scaled**, so the ranking is not an artefact of a lucky
-    iteration; `wasm-js` is the one target whose run-to-run spread is a large share of
-    its own mean. The Scale-Up window is where runs disagree most, and that is HPA
-    reaction timing rather than steady capacity.
-
-    **Cooldown throughput stays high.** With KEDA scaling on concurrency, traffic is
-    still balanced across the replicas as the VUs ramp down, so the window is not idle.
+    - **Throughput is stable once scaled**, so the ranking is not an artefact of a
+      lucky iteration. `wasm-js` is the one target whose run-to-run spread is a large
+      share of its own mean.
+    - The Scale-Up window is where runs disagree most, and that is HPA reaction timing
+      rather than steady capacity.
+    - **Cooldown throughput stays high.** With KEDA scaling on concurrency, traffic is
+      still balanced across the replicas as the VUs ramp down, so the window is not
+      idle.
     """)
     return
 
@@ -2252,17 +2275,17 @@ def md_scale_up():
     Per-iteration peak p95, worst check rate, replica high-water mark and the time
     until KEDA first adds a replica.
 
-    **Cold-start latency cost is negligible for the container targets** - peak p95
-    during the initial ramp is barely above their steady-state p95, so no target pays a
-    visible first-request penalty. `wasm-js` is the exception by a wide margin.
-
-    **The mean time to first scale-up does not rank the targets.** It averages only the
-    iterations that started below their target replica count - 27 scale events across
-    all 60 runs, as few as two for some targets - and every target has one slow outlier
-    dragging its mean up. The medians are flat. Read this as "KEDA reacts within roughly
-    15-20 s once it has to", not as a between-target ranking. Since KEDA scales on
-    concurrency = 20, the targets that saturate a worker soonest trigger earliest: this
-    measures request-holding time, not platform startup speed.
+    - **Cold-start latency cost is negligible for the container targets**: peak p95
+      during the initial ramp is barely above their steady-state p95, so no target pays
+      a visible first-request penalty. `wasm-js` is the exception by a wide margin.
+    - **The mean time to first scale-up does not rank the targets.** It averages only
+      the iterations that started below their target replica count - 27 scale events
+      across all 60 runs, as few as two for some targets - and every target has one slow
+      outlier dragging its mean up. The medians are flat.
+    - Read this as "KEDA reacts within roughly 15-20 s once it has to", not as a
+      between-target ranking. Since KEDA scales on concurrency = 20, the targets that
+      saturate a worker soonest trigger earliest: this measures request-holding time,
+      not platform startup speed.
     """)
     return
 
@@ -2285,21 +2308,17 @@ def md_master():
     column name says otherwise. Throughput is the **sum over all seven routes**; energy
     is normalized by the request counter differenced per label series.
 
-    **Throughput splits the field into two groups**, the four container targets well
-    ahead of the two WebAssembly ones.
-
-    **Latency follows throughput**, with `wasm-js` an order of magnitude above
-    everything else on both p95 and p99.
-
-    **`wasm-js` is the only target that drops requests** (HTTP timeouts). Every other
-    target holds a perfect check rate across all 10 iterations.
-
-    **Energy per request is where the ranking inverts.** The throughput leader is not
-    the efficiency leader, so absolute joules have to be normalized by work done before
-    the targets can be compared at all.
-
-    **Footprint spans two orders of magnitude** per replica, and the spread widens as a
-    cluster total, because the slower targets also run more replicas.
+    - **Throughput splits the field into two groups**, the four container targets well
+      ahead of the two WebAssembly ones.
+    - **Latency follows throughput**, with `wasm-js` an order of magnitude above
+      everything else on both p95 and p99.
+    - **`wasm-js` is the only target that drops requests** (HTTP timeouts). Every other
+      target holds a perfect check rate across all 10 iterations.
+    - **Energy per request is where the ranking inverts.** The throughput leader is not
+      the efficiency leader, so absolute joules have to be normalized by work done
+      before the targets can be compared at all.
+    - **Footprint spans two orders of magnitude** per replica, and the spread widens as
+      a cluster total, because the slower targets also run more replicas.
     """)
     return
 
@@ -2317,8 +2336,8 @@ def md_ts_rps():
 
     Mean across the 10 iterations with a +/-1 SD band, summed over all seven routes;
     shaded regions mark the load stages. The step at each VU increase is visible for the
-    container targets but not for `wasm-js`, which is already saturated during the first
-    ramp and *loses* throughput once the load reaches 100 VUs.
+    container targets, but not for `wasm-js`, which is already saturated during the
+    first ramp and *loses* throughput once the load reaches 100 VUs.
     """)
     return
 
@@ -2335,10 +2354,11 @@ def md_ts_pods():
     ### Replica count over time
 
     KEDA targets 20 concurrent requests per pod, so the replica count is a direct
-    readout of how long each request occupies a worker: the slow targets need **more**
-    pods to serve **less** traffic. Replica counts stay flat through Cooldown by design,
-    because KEDA's scale-down fires roughly 30 s after the run ends, outside the capture
-    window.
+    readout of how long each request occupies a worker.
+
+    - The slow targets need **more** pods to serve **less** traffic.
+    - Replica counts stay flat through Cooldown by design, because KEDA's scale-down
+      fires roughly 30 s after the run ends, outside the capture window.
     """)
     return
 
@@ -2355,9 +2375,11 @@ def md_ts_cpu():
     ### CPU usage over time
 
     Per-replica CPU as a share of total node capacity (percent), not cores: the query
-    divides the pod CPU-time rate by the node's logical CPU count. The ordering differs
-    from the energy ranking - a target can burn comparable CPU to another and convert it
-    into more throughput, which is what lowers its joules-per-request.
+    divides the pod CPU-time rate by the node's logical CPU count.
+
+    - The ordering differs from the energy ranking - a target can burn comparable CPU to
+      another and convert it into more throughput, which is what lowers its
+      joules-per-request.
     """)
     return
 
@@ -2377,10 +2399,10 @@ def md_ts_p95():
     **logarithmic y-axis** - on a linear axis `wasm-js` flattens the other five curves
     into a single line along the bottom.
 
-    `wasm-js` sits an order of magnitude above everything else and its band is both high
-    and wide, so its latency is not just worse but *unpredictable* between runs. The
-    remaining targets separate cleanly on the log axis, with `wasm-rust` distinctly above
-    the four container targets.
+    - `wasm-js` sits an order of magnitude above everything else and its band is both
+      high and wide, so its latency is not just worse but *unpredictable* between runs.
+    - The remaining targets separate cleanly on the log axis, with `wasm-rust`
+      distinctly above the four container targets.
     """)
     return
 
@@ -2393,30 +2415,25 @@ def md_route_latency():
     `p95_by_route` breaks the aggregate p95 into the seven k6 routes. Two findings change
     how the earlier numbers should be read.
 
-    **One route dominates every container target.** `/match/team/:id` - the team join
-    lookup - carries the overwhelming majority of total service time on every target
-    except `wasm-js`, while every other route on those targets is an order of magnitude
-    cheaper. Service-time share is request rate x p95, so this combines the route's 30 %
-    traffic weight with its cost; a slow route called rarely would not show up here.
-
-    **The endpoint we designed as "expensive" is not the expensive one.** The `aggregate`
-    category (`/match/result-table`, a full result-table query) resolves quickly on all
-    five of those targets and accounts for only a small share of service time. The
-    scenario's cost sits in the `lookup` category instead. That is worth stating
-    explicitly in the thesis: the weighting was designed on expected query cost, and the
-    measurement disagrees.
-
-    **`wasm-js` is a different animal entirely.** Its aggregate p95 is not uniform
-    slowness - it is one route. `/teams/record/:id` alone accounts for most of its service
-    time, while `/match/team/:id`, the route that dominates everyone else, is *faster* on
-    `wasm-js` than on several container targets. So `wasm-js` does not have a general
-    latency problem; it has one pathological endpoint, and the aggregate metric was hiding
-    that behind a single number.
-
-    **On trivial routes the runtimes converge.** For the three `simple` key lookups
-    `wasm-rust` lands in the same band as the slower container targets. The Wasm penalty
-    is not a fixed per-request overhead that shows up everywhere - it appears specifically
-    on the database-heavy lookup.
+    - **One route dominates every container target.** `/match/team/:id`, the team join
+      lookup, carries the overwhelming majority of total service time on every target
+      except `wasm-js`, while every other route on those targets is an order of magnitude
+      cheaper. Service-time share is request rate x p95, so this combines the route's
+      30 % traffic weight with its cost; a slow route called rarely would not show up.
+    - **The endpoint designed as "expensive" is not the expensive one.** The `aggregate`
+      category (`/match/result-table`, a full result-table query) resolves quickly on all
+      five of those targets and accounts for only a small share of service time. The
+      cost sits in the `lookup` category instead: the weighting was designed on expected
+      query cost, and the measurement disagrees.
+    - **`wasm-js` behaves differently.** Its aggregate p95 is not uniform
+      slowness but one route - `/teams/record/:id` alone accounts for most of its service
+      time, while `/match/team/:id`, the route that dominates everyone else, is *faster*
+      on `wasm-js` than on several container targets. Not a general latency problem, one
+      pathological endpoint that the aggregate metric was hiding behind a single number.
+    - **On trivial routes the runtimes converge.** For the three `simple` key lookups
+      `wasm-rust` lands in the same band as the slower container targets. The Wasm
+      penalty is not a fixed per-request overhead that shows up everywhere - it appears
+      specifically on the database-heavy lookup.
     """)
     return
 
@@ -2464,16 +2481,16 @@ def md_energy():
     ## RAPL energy: domains and efficiency
 
     Package and DRAM joules accumulated during Steady State, summed over the pods alive
-    at each sample. DRAM is a small and fairly constant share on every target, so the
-    package domain drives all of the differences.
+    at each sample.
 
-    **Per-request efficiency reorders the absolute ranking**, because absolute energy
-    rewards targets that simply did less work: a target can look mid-pack in joules only
-    because it served a fraction of the requests.
-
-    Normalizing by *successful* requests instead barely moves the picture - the `wasm-js`
-    failure rate is too small to explain its efficiency gap. The cost is in how it serves
-    the requests that do succeed.
+    - DRAM is a small and fairly constant share on every target, so the package domain
+      drives all of the differences.
+    - **Per-request efficiency reorders the absolute ranking**, because absolute energy
+      rewards targets that simply did less work: a target can look mid-pack in joules
+      only because it served a fraction of the requests.
+    - Normalizing by *successful* requests instead barely moves the picture - the
+      `wasm-js` failure rate is too small to explain its efficiency gap. The cost is in
+      how it serves the requests that do succeed.
     """)
     return
 
@@ -2492,16 +2509,14 @@ def md_boxplots():
     Each box is 10 points - one per iteration - so the spread is run-to-run
     reproducibility.
 
-    **Latency:** every container target is tight in both windows. `wasm-js` is the
-    exception in both, and it does not recover when the load drops, which points at a
-    queue that never drains rather than at instantaneous capacity.
-
-    **Memory:** `oci-native` is the least reproducible, consistent with GC heap growth
-    varying by run; `oci-axum` and `wasm-rust` are essentially deterministic.
-
-    **Pods:** `oci-axum` and `oci-node` hold the same replica count in every run, while
-    `oci-spring` and `oci-native` oscillate around the KEDA threshold and occasionally
-    serve peak load with one replica fewer.
+    - **Latency:** every container target is tight in both windows. `wasm-js` is the
+      exception in both, and it does not recover when the load drops, which points at a
+      queue that never drains rather than at instantaneous capacity.
+    - **Memory:** `oci-native` is the least reproducible, consistent with GC heap growth
+      varying by run; `oci-axum` and `wasm-rust` are essentially deterministic.
+    - **Pods:** `oci-axum` and `oci-node` hold the same replica count in every run,
+      while `oci-spring` and `oci-native` oscillate around the KEDA threshold and
+      occasionally serve peak load with one replica fewer.
     """)
     return
 
@@ -2522,23 +2537,24 @@ def md_efficiency_scatter():
     line is the **Pareto frontier** - the targets no other target beats on both axes at
     once.
 
-    **Only two targets are non-dominated: `oci-axum` and `oci-spring`.** `oci-axum` is the
-    cheapest per unit of work and `oci-spring` the fastest; everything else is beaten
-    outright by one of them, and both Wasm targets sit in the worst quadrant.
+    - **Only two targets are non-dominated: `oci-axum` and `oci-spring`.** `oci-axum` is
+      the cheapest per unit of work and `oci-spring` the fastest; everything else is
+      beaten outright by one of them, and both Wasm targets sit in the worst quadrant.
+    - **Energy does not buy latency.** Paying more per request does move p95 down
+      slightly along the frontier, but `oci-native` and both Wasm targets pay *more*
+      energy for *worse* latency, so their extra consumption is overhead rather than
+      performance.
+    - **The per-iteration cloud shows the ranking is not noise.** Each target's 10 runs
+      form a tight cluster well separated from its neighbours; the only visible spread
+      is `wasm-js` along the throughput axis.
 
-    **Energy does not buy latency.** Paying more per request does move p95 down slightly
-    along the frontier, but `oci-native` and both Wasm targets pay *more* energy for
-    *worse* latency, so their extra consumption is overhead rather than performance.
+    Two caveats:
 
-    **The per-iteration cloud shows the ranking is not noise.** Each target's 10 runs form
-    a tight cluster well separated from its neighbours; the only visible spread is
-    `wasm-js` along the throughput axis.
-
-    Two caveats worth stating in the thesis. Efficiency is measured at each target's *own*
-    steady-state throughput, not at a matched request rate, so part of the Wasm penalty is
-    a fixed idle draw spread over fewer requests rather than a higher marginal cost. And
-    no target is anywhere near saturation, so these are efficiency figures at low
-    utilisation, not at capacity.
+    - Efficiency is measured at each target's *own* steady-state throughput, not at a
+      matched request rate, so part of the Wasm penalty is a fixed idle draw spread over
+      fewer requests rather than a higher marginal cost.
+    - No target is anywhere near saturation, so these are efficiency figures at low
+      utilisation, not at capacity.
     """)
     return
 
@@ -2589,9 +2605,10 @@ def md_cooldown():
     measures is the **resource footprint kept alive at end of run**, not scale-down
     latency. Measuring the latter needs a capture that extends past the scale-down delay.
 
-    Idle footprint per replica spans more than an order of magnitude, which translates
-    directly into how many idle replicas fit on a node. Idle CPU orders differently,
-    because a target serving almost nothing has little left to do.
+    - Idle footprint per replica spans more than an order of magnitude, which translates
+      directly into how many idle replicas fit on a node.
+    - Idle CPU orders differently, because a target serving almost nothing has little
+      left to do.
     """)
     return
 
@@ -2620,23 +2637,19 @@ def _():
     `df_cooldown_idle` reports the CPU and RAM footprint each runtime **retains at the end
     of the run** (the 660-780 s window), per replica.
 
-    The `idle_` prefix is a misnomer worth flagging: the VUs ramp to zero across this
-    window, but KEDA's scale-down has not fired yet and traffic is still being served on
-    every target except `wasm-js`, the only one genuinely quiet. So the memory column is a
-    fair read of retained footprint - within a few MB of the steady-state value on every
-    target except `oci-native` - but the CPU column is *not* a baseline overhead
-    measurement, since it still contains real request work. Isolating true idle draw needs
-    a capture that extends past KEDA's scale-down delay.
-
-    ---
+    The `idle_` prefix is a misnomer: the VUs ramp to zero across this window, but
+    KEDA's scale-down has not fired yet and traffic is still being served on every target
+    except `wasm-js`, the only one genuinely quiet. So the memory column is a fair read
+    of retained footprint - within a few MB of the steady-state value on every target
+    except `oci-native` - but the CPU column is *not* a baseline overhead measurement,
+    since it still contains real request work. Isolating true idle draw needs a capture
+    that extends past KEDA's scale-down delay.
 
     ### Metric definitions
 
     * **`idle_cpu_pct_mean`**: mean CPU over the window, as a percentage of total node
       capacity (the query divides the pod CPU-time rate by the node's logical CPU count).
     * **`idle_mem_mb_mean`**: mean resident memory in MB per replica over the window.
-
-    ---
 
     ### What the numbers say
 
@@ -2649,18 +2662,15 @@ def _():
     * **CPU:** not comparable as an idle cost, because each target is still serving a
       different amount of traffic in this window.
 
-    ---
+    ### How to use this
 
-    ### How to use this in the report
-
-    **Node density.** The memory column supports the density argument directly: the
-    compiled targets fit far more retained replicas on a node than `oci-spring`. That
-    matters in an auto-scaling setup where replicas outlive the traffic that created them,
-    which is exactly what this window shows.
-
-    **Do not use it for cold-start or true-idle cost.** Neither is measured here; the
-    scale-up section covers reaction time, and a genuine idle baseline would need a longer
-    capture.
+    * **Node density.** The memory column supports the density argument directly: the
+      compiled targets fit far more retained replicas on a node than `oci-spring`. That
+      matters in an auto-scaling setup where replicas outlive the traffic that created
+      them, which is exactly what this window shows.
+    * **Not for cold-start or true-idle cost.** Neither is measured here; the scale-up
+      section covers reaction time, and a genuine idle baseline would need a longer
+      capture.
     """)
     return
 
@@ -2680,22 +2690,19 @@ def md_request_mix():
     | `lookup` | 30 % | `/match/team/:id` | 30.0 % |
     | `aggregate` | 30 % | `/match/result-table` | 30.0 % |
 
-    The point of the weighting is that cheap key lookups make up only a tenth of the
-    traffic, while the three expensive shapes - multi-row record queries, a join by team,
-    and a full result-table aggregation - carry 90 % of it. Comparing runtimes on
-    `/players/:id` alone would mostly measure HTTP framing overhead; this mix makes the
-    database and serialisation work dominate instead.
-
-    **The run reproduces the design almost exactly.** Every observed category share lands
-    within a tenth of a percentage point of its designed weight, and the intra-category
-    split holds too. Random route selection had millions of requests to converge over, so
-    this is the expected outcome - but it confirms that no target skewed the mix by failing
-    a particular route, which would quietly invalidate the cross-target comparison.
-
-    Counts come from the `http_reqs` counter differenced per label series. Counting scrape
-    rows instead - one row per label series per sample - measures how many routes a
-    category owns rather than how much traffic it received, and overstates `simple` because
-    it spans three routes.
+    - Cheap key lookups make up only a tenth of the traffic, while the three expensive
+      shapes - multi-row record queries, a join by team, a full result-table aggregation
+      - carry 90 % of it. Comparing runtimes on `/players/:id` alone would mostly measure
+      HTTP framing overhead; this mix makes the database and serialisation work dominate.
+    - **The run reproduces the design almost exactly.** Every observed category share
+      lands within a tenth of a percentage point of its designed weight, and the
+      intra-category split holds too. Random route selection had millions of requests to
+      converge over, so this is expected - but it confirms that no target skewed the mix
+      by failing a particular route, which would quietly invalidate the comparison.
+    - Counts come from the `http_reqs` counter differenced per label series. Counting
+      scrape rows instead - one row per label series per sample - measures how many
+      routes a category owns rather than how much traffic it received, and overstates
+      `simple` because it spans three routes.
     """)
     return
 
@@ -2741,41 +2748,40 @@ def md_variant_ab():
     Both builds have **10 iterations and full RAPL capture**, so this is a symmetric
     comparison, and every metric is judged by the same rule as the per-route table:
     Welch's two-sided test at alpha = 0.05 on the difference of the two run means. It is
-    still reported separately rather than as a seventh target, because every other target
-    ships one binary serving all routes, and letting one runtime enter the comparison twice
+    reported separately rather than as a seventh target, because every other target ships
+    one binary serving all routes, and letting one runtime enter the comparison twice
     would give it two attempts at the Pareto frontier.
 
-    **Componentization helps the cheapest routes and hurts two of the mid-cost ones.** Six
-    of the seven routes resolve, but they do not share a direction. The four cheapest gain
-    19-55 %, which is what the theory predicts: a smaller module resolves and dispatches
-    faster, and where the work itself takes tens of microseconds that overhead share is
-    large enough to see. `/match/:id` and `/match/result-table` move the other way by about
-    6 %; only the second of the two is borderline under a Bonferroni correction across the
-    seven routes. The most expensive route, `/match/team/:id`, does not resolve at all.
+    - **Componentization helps the cheapest routes and hurts two of the mid-cost ones.**
+      Six of the seven routes resolve, but they do not share a direction. The four
+      cheapest gain 19-55 %, which is what the theory predicts: a smaller module resolves
+      and dispatches faster, and where the work itself takes tens of microseconds that
+      overhead share is large enough to see. `/match/:id` and `/match/result-table` move
+      the other way by about 6 %; only the second is borderline under a Bonferroni
+      correction across the seven routes. The most expensive route, `/match/team/:id`,
+      does not resolve at all.
+    - **The aggregate picture is small but not empty.** Because `/match/team/:id` owns
+      almost all of the service time, savings of tens of microseconds on the cheap routes
+      cannot surface in the total. Replica count is unchanged and both builds hold a
+      perfect check rate, but steady p95, throughput and energy per request all move
+      against the componentized build.
+    - **Energy is not a wash, but the penalty is small.** Energy per 10k requests rises
+      by about 2 %, and throughput falls by under 2 %; both resolve at ten iterations,
+      and both survive a Bonferroni correction across the metrics in the table. Total
+      energy over the window does not move, which is consistent: the componentized build
+      spends slightly more energy per unit of work because it completes slightly less
+      work for the same power.
+    - **It costs memory, and that is by far the largest effect.** Resident memory per
+      replica and cluster total both rise by about 36-38 %, because each pod instantiates
+      three components instead of one.
 
-    **The aggregate picture is small but not empty.** Because `/match/team/:id` owns almost
-    all of the service time, savings of tens of microseconds on the cheap routes cannot
-    surface in the total. Replica count is unchanged and both builds hold a perfect check
-    rate, but steady p95, throughput and energy per request all move against the
-    componentized build.
-
-    **Energy is not a wash, but the penalty is small.** Energy per 10k requests rises by
-    about 2 %, and throughput falls by under 2 %; both resolve at ten iterations, and both
-    survive a Bonferroni correction across the metrics in the table. Total energy over the
-    window does not move, which is consistent: the componentized build spends slightly more
-    energy per unit of work because it completes slightly less work for the same power.
-
-    **It costs memory, and that is by far the largest effect.** Resident memory per replica
-    and cluster total both rise by about 36-38 %, because each pod instantiates three
-    components instead of one.
-
-    **Conclusion:** at this workload, component granularity buys tens of microseconds on
-    routes that were already fast, costs about 2 % in energy per unit of work and 16 MiB of
-    resident memory per replica, and leaves aggregate latency unresolved. The effect on the small routes is
-    real and correctly signed, so the mechanism is doing what it should - it simply has no
-    leverage on a steady mixed load whose cost is concentrated in one database-heavy route.
-    Componentization should be argued for cold-start-dominated or independently-scaled
-    workloads, not for this one.
+    **Conclusion.** At this workload, component granularity buys tens of microseconds on
+    routes that were already fast, costs about 2 % in energy per unit of work and 16 MiB
+    of resident memory per replica, and leaves aggregate latency unresolved. The effect
+    on the small routes is real and correctly signed, so the mechanism is doing what it
+    should - it simply has no leverage on a steady mixed load whose cost is concentrated
+    in one database-heavy route. Componentization should be argued for
+    cold-start-dominated or independently-scaled workloads, not for this one.
     """)
     return
 

@@ -27,24 +27,22 @@ def md_intro():
     # Client-to-server round-trip time
 
     Load is generated from a workstation outside the benchmark network, so every
-    response time carries a fixed network offset. This notebook measures it from
-    the archived benchmark data rather than from a `ping` taken afterwards.
+    response time carries a fixed network offset. Measured from the archived
+    benchmark data rather than from a `ping` taken afterwards.
 
-    **Why `http_req_connecting`.** k6 records the TCP handshake separately, and a
-    handshake is exactly one round trip. It is measured by the load generator
-    itself, over the real path, at the time of the runs - so it survives the
-    benchmark host being torn down, and it needs no assumption that ICMP and HTTP
-    take the same route. Routers routinely deprioritise ICMP; a `ping` also stops
-    at the host and misses the ingress hop.
-
-    **Why the `coldstart` scenario only.** k6 reuses keep-alive connections, so in
-    `baseline` and `scaling` this metric is 0 for almost every request and the
-    distribution is a pile of zeros with no usable centre. Every `coldstart`
-    repetition is a separate k6 process issuing a single request, so each one
-    contributes exactly one fresh handshake: 30 repetitions x 6 targets = 180
-    clean samples. The handshake terminates at Traefik / the KEDA interceptor,
-    both already running when the request is issued, so pod start-up does not
-    inflate it.
+    - **Why `http_req_connecting`.** k6 records the TCP handshake separately, and
+      a handshake is exactly one round trip. It is measured by the load generator
+      itself, over the real path, at the time of the runs, so it survives the
+      benchmark host being torn down and needs no assumption that ICMP and HTTP
+      take the same route. Routers routinely deprioritise ICMP, and a `ping` also
+      stops at the host and misses the ingress hop.
+    - **Why the `coldstart` scenario only.** k6 reuses keep-alive connections, so
+      in `baseline` and `scaling` this metric is 0 for almost every request - a
+      pile of zeros with no usable centre. Every `coldstart` repetition is a
+      separate k6 process issuing a single request, so each contributes exactly
+      one fresh handshake: 30 repetitions x 6 targets = 180 clean samples.
+    - The handshake terminates at Traefik / the KEDA interceptor, both already
+      running when the request is issued, so pod start-up does not inflate it.
     """)
     return
 
@@ -305,14 +303,14 @@ def md_reading():
     mo.md(r"""
     ## Reading the result
 
-    The per-target medians agree to within half a millisecond, which is the point
-    that matters for the thesis: the offset is a property of the network path and
-    not of any variant, so it cannot change their ordering. It is a larger share
-    of a fast variant's response time than of a slow one's, so it **compresses**
-    the measured differences - every reported gap is conservative.
-
-    Two targets carry a single ~18 ms outlier, which is why the summary reports
-    the median rather than the mean.
+    - The per-target medians agree to within half a millisecond, which is the
+      point that matters: the offset is a property of the network path and not of
+      any variant, so it cannot change their ordering.
+    - It is a larger share of a fast variant's response time than of a slow
+      one's, so it **compresses** the measured differences - every reported gap
+      is conservative.
+    - Two targets carry a single ~18 ms outlier, which is why the summary reports
+      the median rather than the mean.
     """)
     return
 

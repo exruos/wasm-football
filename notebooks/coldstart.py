@@ -34,37 +34,37 @@ def md_intro():
 
     KEDA scales the application to **zero replicas**; once the scale-down has settled,
     k6 fires a **single request** (1 VU, 1 iteration) at `/players/1`. The cold start
-    is the interval from that request to the **first HTTP 200** - it therefore
-    includes image/pod scheduling, container start, runtime boot, connection setup
-    and the query itself. **30 repetitions per target.**
+    is that request to the **first HTTP 200**, so it includes image/pod scheduling,
+    container start, runtime boot, connection setup and the query itself.
+    **30 repetitions per target.**
 
     ### What is measured, and how
 
-    * **Cold-start time** comes from k6:
+    * **Time** from k6:
       `histogram_quantile(0.95, sum(k6_http_req_duration_seconds_bucket) by (vmrange))`.
-      With exactly one request in flight the quantile is that request's duration; the
+      With one request in flight the quantile is that request's duration; the
       **first** sample of the series is the cold start, and later samples only decay
       as the histogram ages.
-    * **Energy is measured at the node**, not the pod. Kepler's per-pod counters do
-      not exist before the pod does, so a pod-scoped measurement cannot see the part
-      of a cold start that matters. `kepler_node_cpu_joules_total` is a cumulative
-      counter per RAPL zone, so the energy over the cold-start window is the counter
-      delta across it - no numerical integration of a power series required.
-    * **The idle baseline** comes from a separate `idle-scaled` capture with **zero
-      application pods deployed**, giving the node's resting draw. Cold-start energy
-      is the excess over that baseline:
+    * **Energy at the node**, not the pod - Kepler's per-pod counters do not exist
+      before the pod does, so a pod-scoped measurement cannot see the part that
+      matters. `kepler_node_cpu_joules_total` is a cumulative counter per RAPL zone,
+      so window energy is the counter delta across it, with no numerical integration
+      of a power series.
+    * **Idle baseline** from a separate `idle-scaled` capture with **zero application
+      pods deployed**, giving the node's resting draw. Cold-start energy is the excess
+      over it:
 
     $$E_{\text{coldstart}} \approx \big(J_{\text{node}}(t_1) - J_{\text{node}}(t_0)\big) - P_{\text{idle}} \cdot \Delta t$$
 
     ### What this number contains
 
-    The node is shared. Two PostgreSQL instances, three pgbouncer pods, KEDA, the HPA
+    The node is shared: two PostgreSQL instances, three pgbouncer pods, KEDA, the HPA
     and the kube scheduler all run on it and all do work during a cold start. The
     excess is therefore the **whole-system cost of bringing this service up**, not
     the container's own consumption - an upper bound on the runtime's share, and the
     figure a capacity planner actually pays.
 
-    Because the excess is a small difference between two large numbers, the notebook
+    Because it is a small difference between two large numbers, the notebook
     quantifies its **noise floor** by applying the identical estimator to windows of
     the idle capture, where the true excess is zero by construction.
     """)
@@ -846,15 +846,20 @@ def chart_helpers():
 
         # The band is the first layer to encode colour, so it is the one that has to
         # carry the legend; see target_color().
+        # The band is mean +/- 1 SD of a noisy difference, so its lower edge runs
+        # below zero on the quiet targets. Node power cannot be negative, so the
+        # axis is floored at 0 and the band is clipped there rather than the plot
+        # carrying a physically meaningless negative region.
+        power_scale = alt.Scale(zero=False, domainMin=0)
         band = base.mark_area(opacity=0.15).encode(
             x=x,
-            y=alt.Y("band_lower:Q", title="Node power (W)", scale=alt.Scale(zero=False)),
+            y=alt.Y("band_lower:Q", title="Node power (W)", scale=power_scale),
             y2="band_upper:Q",
             color=target_color(symbol="stroke"),
         )
         line = base.mark_line(strokeWidth=1.7).encode(
             x=x,
-            y=alt.Y("power_mean_w:Q", title="Node power (W)", scale=alt.Scale(zero=False)),
+            y=alt.Y("power_mean_w:Q", title="Node power (W)", scale=power_scale),
             color=target_color(legend=False),
             tooltip=[
                 alt.Tooltip("target:N", title="Target"),
@@ -869,8 +874,10 @@ def chart_helpers():
         )
 
         return (band + line + baseline_rule).properties(
-            width=620,
-            height=240,
+            # 626 keeps the exported SVG at the same 767 px width it had while the
+            # y-axis still carried a negative "-100" label.
+            width=626,
+            height=234,
             title={
                 "text": "Node power during a cold start",
                 "subtitle": "Mean of 30 runs +/-1 SD; dashed line = idle node with zero application pods",
@@ -912,11 +919,27 @@ def chart_helpers():
             y=alt.Y("excess_mean_j:Q", title="Cold-start energy (J above idle)", scale=alt.Scale(zero=False, padding=25)),
         )
         layers.append(means.mark_point(size=170, filled=True).encode(color=target_color()))
-        layers.append(
-            means.mark_text(align="left", dx=10, dy=-8, fontSize=11).encode(
-                text="target:N", color=target_color(legend=False)
+
+        # Five of the six targets fall inside a 1.6 s by 17 J cluster, so one
+        # shared offset stacks their labels on top of each other. Each target is
+        # placed on its own instead; the values are pixel offsets from the marker
+        # and the anchor side, chosen so no two labels share a row.
+        label_offsets = {
+            "wasm-rust": ("right", -12, -14),
+            "wasm-js": ("right", -12, 17),
+            "oci-native": ("left", 12, -20),
+            # Far enough right to clear the marker blob it sits inside.
+            "oci-node": ("left", 28, 0),
+            "oci-axum": ("left", 12, 20),
+            "oci-spring": ("left", 12, -8),
+        }
+        for label_target in df_summary["target"].to_list():
+            align, dx, dy = label_offsets.get(label_target, ("left", 10, -8))
+            layers.append(
+                means.transform_filter(alt.datum.target == label_target)
+                .mark_text(align=align, dx=dx, dy=dy, fontSize=11)
+                .encode(text="target:N", color=target_color(legend=False))
             )
-        )
         layers.append(
             alt.Chart(df_summary)
             .mark_rule(opacity=0.5)
@@ -1104,23 +1127,24 @@ def md_time():
     mo.md(r"""
     ## Cold-start time
 
-    **`wasm-rust` is the fastest to serve its first request**, with `wasm-js` next and the
-    three other container targets close behind. **`oci-spring` is several times slower than
-    any of them**, which is the JVM paying for class loading and context initialization
-    before it can answer at all.
+    - **`wasm-rust` is the fastest to serve its first request**, with `wasm-js` next and
+      the three other container targets close behind. **`oci-spring` is several times
+      slower than any of them** - the JVM paying for class loading and context
+      initialization before it can answer at all.
+    - **The durations are quantized by k6's histogram buckets**, which limits how far
+      the spreads can be read. `histogram_quantile` over `vmrange` returns a bucket
+      edge, and the buckets are about 9 % wide in relative terms, so across 30 runs each
+      target lands on only a handful of distinct values. Variation narrower than one
+      bucket is invisible.
 
-    **The durations are quantized by k6's histogram buckets**, which limits how far the
-    spreads can be read. `histogram_quantile` over `vmrange` returns a bucket edge, and the
-    buckets are about 9 % wide in relative terms, so across 30 runs each target lands on
-    only a handful of distinct values. Variation narrower than one bucket is invisible.
     With that caveat:
 
     * `oci-spring` has the smallest absolute spread, but relative to its mean that is
       *below* one bucket width - its run-to-run variation sits at or under the measurement
       resolution, so "predictable" is as much a statement about the instrument as about
       the JVM.
-    * `wasm-js` is genuinely the least predictable - its ECDF has a long tail, so a user's
-      experience of it varies wildly. That spread is many buckets wide and therefore real.
+    * `wasm-js` is genuinely the least predictable - a long ECDF tail, many buckets wide
+      and therefore real.
     * the other four targets sit at roughly two bucket widths: resolvable, but not finely.
     * `wasm-rust` combines the fastest mean with a tight spread, making it the best target
       on this axis by both measures.
@@ -1148,26 +1172,22 @@ def md_energy():
     mo.md(r"""
     ## Cold-start energy
 
-    Energy is measured at the **node** and the idle baseline is subtracted, because Kepler
-    cannot report per-pod counters for a pod that does not exist yet. The baseline comes
-    from the `idle-scaled` capture with zero application pods deployed.
+    Measured at the **node** with the idle baseline subtracted, because Kepler cannot
+    report per-pod counters for a pod that does not exist yet. The baseline comes from
+    the `idle-scaled` capture with zero application pods deployed.
 
-    Two things follow from that, and the first is uncomfortable:
-
-    **Most of the energy in the window is not the cold start.** Over a typical few-second
-    cold start the great majority of the node's draw is idle baseline, and the service
-    start accounts for well under a tenth of what was measured. The stacked chart shows
-    this directly; only `oci-spring`, whose window is long and whose startup is CPU-heavy,
-    breaks out of the baseline.
-
-    **The excess ranks the targets much as time does, with one exception.** `oci-native`
-    costs more than `oci-node` despite starting faster, because it draws more power while
-    it starts.
-
-    Expressed as excess power rather than energy the picture is much flatter for every
-    target except `oci-spring`, which sustains a large excess for the whole of its long
-    start. A single JVM cold start therefore costs as much energy as a great many
-    `wasm-rust` cold starts.
+    - **Most of the energy in the window is not the cold start.** Over a typical
+      few-second window the great majority of the node's draw is idle baseline, and the
+      service start accounts for well under a tenth of what was measured. The stacked
+      chart shows this directly; only `oci-spring`, whose window is long and whose
+      startup is CPU-heavy, breaks out of the baseline.
+    - **The excess ranks the targets much as time does, with one exception.**
+      `oci-native` costs more than `oci-node` despite starting faster, because it draws
+      more power while it starts.
+    - Expressed as excess power rather than energy the picture is much flatter for every
+      target except `oci-spring`, which sustains a large excess for the whole of its
+      long start. A single JVM cold start therefore costs as much energy as a great many
+      `wasm-rust` cold starts.
     """)
     return
 
@@ -1193,31 +1213,30 @@ def md_noise():
     mo.md(r"""
     ## How much of this is measurable?
 
-    The excess is a small difference between two large numbers, so it needs a stated
-    detection limit rather than a bare mean. Applying the **identical estimator to 1 211
-    windows of the idle capture**, where no pod starts and the true answer is zero by
-    construction, gives the noise floor. Its mean is close to zero against a much larger
-    sd, so the estimator carries no meaningful bias - which is what validates the method.
+    A small difference between two large numbers needs a stated detection limit rather
+    than a bare mean.
 
-    The window length used here is the pooled median cold-start duration, but the noise
-    floor turns out to be almost **independent of window length**: repeating the sweep at
-    each target's own mean duration moves the sd by around 15 % over a 4.7x range of
-    durations. The error is therefore dominated by counter quantization at the two window
-    boundaries rather than by the length of the integration, and one pooled figure is
-    legitimate for all six targets.
-
-    **A single cold-start measurement is therefore worthless for every target except
-    `oci-spring`.** The other five excesses lie far inside the noise band, and individual
-    runs come out negative regularly - for `oci-spring` alone, never. What rescues the
-    analysis is repetition: with 30 runs the standard error falls far enough that the
-    smallest resolvable mean is a few joules (2 SE, the dashed line in the energy chart).
-
-    Against that limit every target's 95 % CI excludes zero, but by very different margins.
-    `oci-spring` is unambiguous; `oci-native` and `oci-node` are solid; `wasm-rust`,
-    `oci-axum` and `wasm-js` sit close enough to the limit that their ordering should not
-    be over-interpreted. The honest statement is that those three are all small - their
-    point estimates fall below `oci-node` and `oci-native`, but the intervals overlap, so
-    only the gap to `oci-spring` is beyond argument.
+    - **The noise floor** comes from the identical estimator applied to **1 211 windows
+      of the idle capture**, where no pod starts and the true answer is zero by
+      construction. Its mean is close to zero against a much larger sd, so the estimator
+      carries no meaningful bias - which is what validates the method.
+    - **Almost independent of window length**: the length used here is the pooled median
+      cold-start duration, and repeating the sweep at each target's own mean duration
+      moves the sd by around 15 % over a 4.7x range of durations. The error is dominated
+      by counter quantization at the two window boundaries rather than by the length of
+      the integration, so one pooled figure is legitimate for all six targets.
+    - **A single measurement is therefore worthless for every target except
+      `oci-spring`.** The other five excesses lie far inside the noise band, and
+      individual runs come out negative regularly - for `oci-spring` alone, never.
+    - Repetition rescues the analysis: with 30 runs the standard error falls far enough
+      that the smallest resolvable mean is a few joules (2 SE, the dashed line in the
+      energy chart).
+    - Against that limit every target's 95 % CI excludes zero, but by very different
+      margins. `oci-spring` is unambiguous; `oci-native` and `oci-node` are solid;
+      `wasm-rust`, `oci-axum` and `wasm-js` sit close enough to the limit that their
+      ordering should not be over-interpreted - their point estimates fall below
+      `oci-node` and `oci-native`, but the intervals overlap, so only the gap to
+      `oci-spring` is beyond argument.
     """)
     return
 
@@ -1233,21 +1252,20 @@ def md_caveats():
     mo.md(r"""
     ## What the number includes, and what it does not
 
-    The measurement is node-scoped, so the excess covers **everything the machine did
-    during the window**, not just the application container:
+    Node-scoped, so the excess covers **everything the machine did during the
+    window**, not just the application container:
 
     * the two PostgreSQL instances and three pgbouncer pods answering the query that
       the first request triggers;
     * KEDA, the HPA and the kube scheduler reacting to the scale-from-zero event;
     * the kubelet pulling from cache, creating the sandbox and starting the container.
 
-    That makes the figure a **whole-system cost of bringing the service up** - an
-    upper bound on the runtime's own share, and arguably the more useful number for
-    capacity planning, but not a clean per-runtime attribution. A target whose
-    startup triggers more database work will look worse here even if its own
-    container is frugal.
+    That makes it a **whole-system cost of bringing the service up** - an upper bound
+    on the runtime's own share, arguably the more useful number for capacity
+    planning, but not a clean per-runtime attribution. A target whose startup
+    triggers more database work looks worse here even if its own container is frugal.
 
-    Two smaller caveats worth stating in the thesis:
+    Two smaller caveats:
 
     1. **Counter granularity.** Kepler updates the node counter roughly once per
        second while the scrape runs at 100 ms. Windows of 2-3 s therefore span only a
@@ -1349,44 +1367,34 @@ def _():
     Why the energy above can be computed from a mean-power metric and a duration, rather
     than by integrating a power series.
 
-    ---
-
-    **Step 1: expand the continuous integral.** Let $\Delta t = t_1 - t_0$ be the duration
-    of the cold-start interval. By linearity of integration:
+    **Step 1 - expand the continuous integral.** With $\Delta t = t_1 - t_0$, by
+    linearity of integration:
 
     $$\int_{t_0}^{t_1} \Big( P_{\text{node}}(t) - P_{\text{baseline}} \Big) \, dt = \int_{t_0}^{t_1} P_{\text{node}}(t) \, dt - \int_{t_0}^{t_1} P_{\text{baseline}} \, dt$$
 
-    Since $P_{\text{baseline}}$ is constant over $[t_0, t_1]$, its integral is just
+    $P_{\text{baseline}}$ is constant over $[t_0, t_1]$, so its integral is
     $P_{\text{baseline}} \Delta t$.
 
-    ---
-
-    **Step 2: factor out $\Delta t$.**
+    **Step 2 - factor out $\Delta t$.** Exact algebra, not an approximation:
 
     $$E_{\text{coldstart}} = \left( \frac{1}{\Delta t} \int_{t_0}^{t_1} P_{\text{node}}(t) \, dt - P_{\text{baseline}} \right) \Delta t$$
 
-    This step is exact algebra, not an approximation.
-
-    ---
-
-    **Step 3: approximate the mean power.** The leading term is by definition the mean of
-    $P_{\text{node}}(t)$ over the interval. Kepler samples power discretely, and
+    **Step 3 - approximate the mean power.** The leading term is by definition the mean
+    of $P_{\text{node}}(t)$ over the interval. Kepler samples power discretely, and
     $\text{avg\_over\_time}(\text{kepler\_node\_cpu\_watts}[\Delta t])$ is the arithmetic
     mean of those samples - a Riemann sum approximating the continuous average:
 
     $$\bar{P}_{\text{node}} = \text{avg\_over\_time}(\text{kepler\_node\_cpu\_watts}[\Delta t]) \approx \frac{1}{\Delta t} \int_{t_0}^{t_1} P_{\text{node}}(t) \, dt$$
 
-    ---
-
-    **Step 4: substitute.**
+    **Step 4 - substitute.**
 
     $$E_{\text{coldstart}} \approx (\bar{P}_{\text{node}} - P_{\text{baseline}}) \times \Delta t$$
 
     Every algebraic step is exact; the only approximation is the discrete sampling in
-    step 3, whose error is bounded by the noise-floor sweep above. Note that the notebook
-    does **not** actually use this route: it differences the cumulative joules counter
-    across the window, which avoids the sampling approximation entirely. The derivation is
-    kept because it shows the two formulations agree.
+    step 3, whose error is bounded by the noise-floor sweep above. The notebook does
+    **not** use this route - it differences the cumulative joules counter across the
+    window, avoiding the sampling approximation entirely. Kept because it shows the two
+    formulations agree.
     """)
     return
 
