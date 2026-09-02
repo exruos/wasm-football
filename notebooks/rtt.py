@@ -290,8 +290,7 @@ def chart(df_rtt, df_rtt_by_target):
         width=520, height=200,
         title={
             "text": "Network round-trip time, measured during the cold-start runs",
-            "subtitle": "One point per run, black tick = per-target median. The offset "
-                        "is a property of the path, not of the variant",
+            "subtitle": "One point per run, black tick = per-target median",
         },
     )
     chart_rtt

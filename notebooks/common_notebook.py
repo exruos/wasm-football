@@ -70,31 +70,47 @@ with app.setup:
     # and keep whatever size their own chart asked for.
     THESIS_FIGURE_EFFECTIVE_WIDTH = 466
 
+    # Bar thickness, in the same SVG pixels. Left to Vega a bar fills its band, so
+    # a six-category chart drew bars four times fatter than the grouped zone chart
+    # next to it, which splits each band in two. Pinning the size decouples bar
+    # weight from category count, so every bar in the thesis prints the same.
+    THESIS_BAR_SIZE = 14
+
     # BEGIN THESIS_FIGURE_PLOT
     THESIS_FIGURE_PLOT: dict[str, tuple[int, int]] = {
-        "baseline_duration": (380, 210),
+        "baseline_duration": (380, 132),
+        "baseline_efficiency_scatter": (282, 176),
         "baseline_energy_domains": (298, 184),
         "baseline_energy_latency_scatter": (291, 247),
-        "baseline_idle_power": (381, 210),
+        "baseline_idle_power": (381, 132),
         "baseline_p95": (326, 153),
         "baseline_power_duration_scatter": (291, 227),
-        "baseline_resources": (187, 167),
+        "baseline_resources": (187, 132),
         "baseline_run_scatter": (313, 244),
         "breakeven_energy_vs_rate": (317, 158),
-        "coldstart_duration": (380, 210),
+        "coldstart_duration": (380, 132),
         "coldstart_duration_ecdf": (318, 174),
         "coldstart_energy_breakdown": (264, 146),
-        "coldstart_excess_energy": (380, 198),
+        "coldstart_energy_timeline": (325, 149),
+        "coldstart_excess_energy": (380, 132),
         "coldstart_noise_floor": (328, 143),
         "coldstart_power_timeline": (325, 120),
         "coldstart_time_energy_scatter": (322, 302),
+        "rtt_by_target": (381, 147),
+        "scaling_cpu_usage": (324, 150),
         "scaling_efficiency_runs_scatter": (319, 255),
-        "scaling_energy_efficiency": (380, 229),
+        "scaling_efficiency_scatter": (282, 214),
+        "scaling_energy_efficiency": (380, 132),
         "scaling_energy_latency_scatter": (303, 229),
         "scaling_memory_energy_scatter": (282, 227),
+        "scaling_p95": (315, 150),
+        "scaling_pods": (329, 150),
+        "scaling_request_mix": (231, 268),
         "scaling_request_mix_validation": (225, 151),
-        "scaling_route_latency_heatmap": (219, 186),
+        "scaling_route_latency_heatmap": (275, 186),
+        "scaling_rps": (318, 150),
         "scaling_service_time_share": (259, 131),
+        "scaling_variant_route_p95": (195, 106),
         "scaling_work_per_joule_scatter": (297, 236),
     }
     # END THESIS_FIGURE_PLOT
@@ -557,6 +573,7 @@ def thesis_chart(chart, title: str | None = None):
     """Print-friendly styling for export: white background, readable type, light grid."""
     styled = (
         chart.configure_view(strokeWidth=0)
+        .configure_bar(size=THESIS_BAR_SIZE)
         .configure_axis(labelFontSize=11, titleFontSize=12, grid=True, gridOpacity=0.25)
         .configure_legend(labelFontSize=11, titleFontSize=12)
         .configure_title(fontSize=14, subtitleFontSize=11, anchor="start")

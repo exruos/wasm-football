@@ -22,6 +22,7 @@ with app.setup:
         target_rank,
         thesis_chart,
         FIGURE_DIR,
+        THESIS_BAR_SIZE,
         TABLE_DIR,
         TARGET_ORDER,
     )
@@ -577,7 +578,7 @@ def chart_helpers():
                 alt.Tooltip("n_cold_runs:Q", title="Runs"),
             ],
         )
-        ci = base.mark_errorbar(color="#222", ticks=True).encode(
+        ci = base.mark_errorbar(color="#222", ticks={"size": THESIS_BAR_SIZE}).encode(
             x=alt.X("duration_ci_lo_s:Q", title="Cold-start time (s)"), x2="duration_ci_hi_s:Q"
         )
         return (bars + ci).properties(
@@ -717,7 +718,7 @@ def chart_helpers():
             )
         )
         layers.append(
-            base.mark_errorbar(color="#222", ticks=True).encode(
+            base.mark_errorbar(color="#222", ticks={"size": THESIS_BAR_SIZE}).encode(
                 x=alt.X("excess_ci_lo_j:Q", title="Cold-start energy (J above idle)"), x2="excess_ci_hi_j:Q"
             )
         )
@@ -821,7 +822,11 @@ def chart_helpers():
             height=260,
             title={
                 "text": "How cold-start energy accumulates",
-                "subtitle": "Cumulative node energy above the idle baseline, mean of 30 runs +/-1 SD. Triangle = mean time of first HTTP 200",
+                # The y-axis title already says "cumulative energy above idle" and
+                # the caption already explains the triangle, so only the run count
+                # is left here. A subtitle wider than the figure sets the exported
+                # SVG width, which is what decides the printed label size.
+                "subtitle": "Mean of 30 runs +/-1 SD",
             },
         )
 

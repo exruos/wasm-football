@@ -22,6 +22,7 @@ with app.setup:
         target_rank,
         thesis_chart,
         FIGURE_DIR,
+        THESIS_BAR_SIZE,
         TABLE_DIR,
         TARGET_ORDER,
     )
@@ -506,7 +507,7 @@ def chart_helpers(
         layers = [bars]
         if f"{column}_lo" in df_plot.columns:
             layers.append(
-                base.mark_errorbar(color="#333", ticks=True).encode(
+                base.mark_errorbar(color="#333", ticks={"size": THESIS_BAR_SIZE}).encode(
                     x=alt.X(f"{column}_lo:Q", title=x_title), x2=f"{column}_hi:Q"
                 )
             )
@@ -521,7 +522,7 @@ def chart_helpers(
         return make_ranked_bar_chart(
             df_summary,
             "duration_s",
-            title="Time to complete 100 000 requests",
+            title="Time to complete 100,000 requests",
             subtitle="Mean of 10 runs, +/-1 SD. Lower is better",
             x_title="Duration (s)",
         )
@@ -639,7 +640,7 @@ def chart_helpers(
             .properties(
                 width=380,
                 height=230,
-                title={"text": "Energy to serve 100 000 requests", "subtitle": subtitle},
+                title={"text": "Energy to serve 100,000 requests", "subtitle": subtitle},
             )
         )
 
@@ -734,7 +735,7 @@ def chart_helpers(
         layers = [bars]
         if "mean_power_w_lo" in df_plot.columns:
             layers.append(
-                base.mark_errorbar(color="#333", ticks=True).encode(
+                base.mark_errorbar(color="#333", ticks={"size": THESIS_BAR_SIZE}).encode(
                     x=alt.X("mean_power_w_lo:Q", title="Mean power (W)"), x2="mean_power_w_hi:Q"
                 )
             )
@@ -1095,9 +1096,9 @@ def chart_helpers(
             x_title="Effective throughput (req/s)",
             y_title="Energy cost (J per 10k requests) - log scale",
             title="Energy cost vs. throughput",
-            # Kept short: a subtitle wider than the plot is clipped at the SVG
-            # edge on export rather than wrapped.
-            subtitle="Bottom-right is better. Dashed line = Pareto frontier; +/-1 SD is smaller than the marker on every target",
+            # A subtitle wider than the figure sets the exported SVG width, which
+            # is what decides the printed label size.
+            subtitle="Bottom-right is better; dashed = Pareto frontier. +/-1 SD < marker size",
             y_log=True,
             frontier=frontier,
             x_err=True,

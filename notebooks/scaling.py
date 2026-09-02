@@ -28,6 +28,7 @@ with app.setup:
         thesis_chart,
         total_gauge,
         FIGURE_DIR,
+        THESIS_BAR_SIZE,
         PER_ROUTE_METRICS,
         TABLE_DIR,
         TARGET_ORDER,
@@ -1470,7 +1471,7 @@ def chart_helpers(
             y=alt.Y("target:N", title="Target", sort=TARGET_ORDER)
         )
         bars = base.mark_bar().encode(
-            x=alt.X("efficiency_mean:Q", title="Joules per 10 000 requests"),
+            x=alt.X("efficiency_mean:Q", title="Joules per 10,000 requests"),
             color=target_color(legend=False),
             tooltip=[
                 alt.Tooltip("target:N", title="Target"),
@@ -1478,7 +1479,11 @@ def chart_helpers(
                 alt.Tooltip("efficiency_std:Q", title="SD", format=".2f"),
             ],
         )
-        errors = base.mark_errorbar().encode(x=alt.X("lo:Q", title=""), x2="hi:Q")
+        # `ticks` sized to the bar: without caps the +/-1 SD range reads as a
+        # stray line rather than a whisker now that the bars are slim.
+        errors = base.mark_errorbar(
+            color="#333", ticks={"size": THESIS_BAR_SIZE}
+        ).encode(x=alt.X("lo:Q", title=""), x2="hi:Q")
 
         return (bars + errors).properties(
             width=320,
@@ -1723,7 +1728,7 @@ def chart_helpers(
             x_title="Throughput (req/s)",
             y_title="Energy cost (J per 10k requests)",
             title=f"Energy cost vs. throughput - {WINDOW_LABELS[window]}",
-            subtitle="Bottom-right is better: more work per joule. Dashed line = Pareto frontier, whiskers = +/-1 SD",
+            subtitle="Bottom-right is better; dashed = Pareto frontier, whiskers = +/-1 SD",
             y_log=y_log,
             frontier=frontier,
             x_err="rps",
@@ -1773,7 +1778,7 @@ def chart_helpers(
             x="memory_per_pod_mb",
             y="joules_per_10k_requests",
             x_title="Memory per replica (MB)",
-            y_title="Energy per 10 000 requests (J)",
+            y_title="Energy per 10,000 requests (J)",
             title=f"Memory footprint vs. energy cost - {WINDOW_LABELS[window]}",
             subtitle="Bottom-left is better on both. The two axes do not order the targets alike",
             # Memory cannot be negative; without this the padding put the axis at -100 MB.
@@ -1866,7 +1871,8 @@ def chart_helpers(
                 "category:N",
                 scale=category_scale(),
                 sort=CATEGORY_ORDER,
-                title="Request category",
+                # "Request category" made the legend wider than the donut.
+                title="Category",
             ),
             tooltip=[
                 alt.Tooltip("category:N", title="Category"),
@@ -1917,8 +1923,10 @@ def chart_helpers(
             ],
         )
 
+        # Spans exactly the bar it marks; at 18 it overhung the 14 px bars and
+        # read as a separate mark rather than a target line drawn across one.
         designed = base.mark_tick(
-            color="#3A2410", thickness=2, size=18, opacity=0.9
+            color="#3A2410", thickness=2, size=THESIS_BAR_SIZE, opacity=0.9
         ).encode(x=alt.X("designed_pct:Q", title="Share of all requests (%)"))
 
         return (bars + designed).properties(
@@ -2115,7 +2123,7 @@ def chart_helpers(
             height=210,
             title={
                 "text": f"{baseline} vs {variant}: steady-state P95 per route",
-                "subtitle": "Dot pairs joined per route; a shift left means the componentized build is faster. Welch's test per route, alpha = 0.05",
+                "subtitle": "A shift left means the componentized build is faster. Welch's test, alpha = 0.05",
             },
         )
 
