@@ -1467,8 +1467,16 @@ def chart_helpers(
             (pl.col("efficiency_mean") + pl.col("efficiency_std")).alias("hi"),
         ])
 
+        # Ranked cheapest-first rather than in TARGET_ORDER: the ordering is
+        # what this chart is for, and it is the order the text reads in.
         base = alt.Chart(df_plot).encode(
-            y=alt.Y("target:N", title="Target", sort=TARGET_ORDER)
+            y=alt.Y(
+                "target:N",
+                title="Target",
+                sort=alt.EncodingSortField(
+                    field="efficiency_mean", op="min", order="ascending"
+                ),
+            )
         )
         bars = base.mark_bar().encode(
             x=alt.X("efficiency_mean:Q", title="Energy per 10k requests (J)"),
