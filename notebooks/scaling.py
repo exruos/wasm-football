@@ -118,11 +118,11 @@ def processing_helpers():
     WINDOW_ORDER = ["scale_up", "ramp_up", "steady", "cooldown", "overall"]
 
     WINDOW_LABELS = {
-        "scale_up": "Scale-Up (0-240 s)",
-        "ramp_up": "Ramp-Up (240-480 s)",
-        "steady": "Steady State (480-600 s)",
-        "cooldown": "Cooldown (660-780 s)",
-        "overall": "Overall (0-780 s)",
+        "scale_up": "Scale-up (0–240 s)",
+        "ramp_up": "Ramp-up (240–480 s)",
+        "steady": "Steady state (480–600 s)",
+        "cooldown": "Cooldown (660–780 s)",
+        "overall": "Overall (0–780 s)",
     }
 
     # Single source of truth for target ordering: matches common_notebook.color_scale()
@@ -130,17 +130,17 @@ def processing_helpers():
     # Axis titles / units per metric, used by charts and exported tables.
     METRIC_LABELS = {
         "rps": ("Throughput", "req/s"),
-        "pods": ("Pod Count", "pods"),
+        "pods": ("Pod count", "pods"),
         # Query is rate(pod_cpu_usage_seconds_total) / count(node_cpu_seconds_total)
         # * 100, i.e. a share of total node capacity -- NOT a core count.
-        "cpu_usage": ("CPU Usage", "% of node capacity"),
-        "memory": ("Memory per Pod", "MB"),
-        "p95": ("P95 Latency", "ms"),
-        "p99": ("P99 Latency", "ms"),
-        "vus": ("Virtual Users", "VUs"),
-        "checks_rate": ("Check Success Rate", "ratio"),
+        "cpu_usage": ("CPU usage", "% of node capacity"),
+        "memory": ("Memory per pod", "MB"),
+        "p95": ("P95 latency", "ms"),
+        "p99": ("P99 latency", "ms"),
+        "vus": ("Virtual users", "VUs"),
+        "checks_rate": ("Check success rate", "ratio"),
         "requests": ("Requests (cumulative)", "requests"),
-        "pod_joules": ("Pod Energy (cumulative)", "J"),
+        "pod_joules": ("Pod energy (cumulative)", "J"),
     }
 
     # Metrics stored as monotonically increasing counters: aggregate them as
@@ -1311,10 +1311,10 @@ def chart_helpers(
             ])
 
         y_def = alt.Scale(type="log", nice=False) if log_y else alt.Scale(zero=False)
-        y_title = metric_title(metric) + (" - log scale" if log_y else "")
+        y_title = metric_title(metric) + (" – log scale" if log_y else "")
 
         base = alt.Chart(df_metric)
-        x = alt.X("normalized_time:Q", title="Normalized Time (s)", scale=alt.Scale(domain=[0, 780], nice=False))
+        x = alt.X("normalized_time:Q", title="Normalized time (s)", scale=alt.Scale(domain=[0, 780], nice=False))
 
         area = base.mark_area(opacity=0.18).encode(
             x=x,
@@ -1407,7 +1407,7 @@ def chart_helpers(
         )
 
         title = {
-            "text": f"RAPL Energy Breakdown - {WINDOW_LABELS[window]}",
+            "text": f"RAPL energy breakdown – {WINDOW_LABELS[window]}",
             "subtitle": "Mean joules per run across 10 iterations",
         }
 
@@ -1471,7 +1471,7 @@ def chart_helpers(
             y=alt.Y("target:N", title="Target", sort=TARGET_ORDER)
         )
         bars = base.mark_bar().encode(
-            x=alt.X("efficiency_mean:Q", title="Joules per 10,000 requests"),
+            x=alt.X("efficiency_mean:Q", title="Energy per 10k requests (J)"),
             color=target_color(legend=False),
             tooltip=[
                 alt.Tooltip("target:N", title="Target"),
@@ -1489,7 +1489,7 @@ def chart_helpers(
             width=320,
             height=190,
             title={
-                "text": f"Energy Efficiency - {WINDOW_LABELS[window]}",
+                "text": f"Energy efficiency – {WINDOW_LABELS[window]}",
                 "subtitle": (
                     "Total RAPL joules per 10k successful requests"
                     if successful_only
@@ -1621,6 +1621,7 @@ def chart_helpers(
         width: int = 420,
         height: int = 320,
         x_min: float | None = None,
+        label_offsets: dict[str, tuple[str, int, int]] | None = None,
     ) -> alt.Chart:
         """Shared scaffold: one labeled point per target, median quadrant guides,
         optional ±1 sd whiskers and a Pareto frontier line."""
@@ -1693,12 +1694,30 @@ def chart_helpers(
                 alt.Tooltip(f"{y}:Q", title=y_title, format=".2f"),
             ],
         )
-        labels = base.mark_text(align="left", dx=9, dy=-7, fontSize=11).encode(
-            x=x_enc, y=y_enc, text="target:N", color=target_color(legend=False)
-        )
+        # Labels sit to the upper right of their marker by default; a point near
+        # the right edge needs (anchor side, dx, dy) of its own so its label does
+        # not run into the legend.
+        if label_offsets:
+            # Filtered in Polars, not with `transform_filter`: this notebook runs
+            # the vegafusion data transformer, which pre-evaluates transforms and
+            # drops these per-target label layers on the way out.
+            label_layers = []
+            for label_target in df_plot["target"].to_list():
+                align, dx, dy = label_offsets.get(label_target, ("left", 9, -7))
+                label_layers.append(
+                    alt.Chart(df_plot.filter(pl.col("target") == label_target))
+                    .mark_text(align=align, dx=dx, dy=dy, fontSize=11)
+                    .encode(x=x_enc, y=y_enc, text="target:N", color=target_color(legend=False))
+                )
+        else:
+            label_layers = [
+                base.mark_text(align="left", dx=9, dy=-7, fontSize=11).encode(
+                    x=x_enc, y=y_enc, text="target:N", color=target_color(legend=False)
+                )
+            ]
 
         return (
-            alt.layer(*layers, points, *err_layers, labels)
+            alt.layer(*layers, points, *err_layers, *label_layers)
             .properties(width=width, height=height, title={"text": title, "subtitle": subtitle})
             .resolve_scale(color="shared")
         )
@@ -1726,9 +1745,9 @@ def chart_helpers(
             x="rps",
             y="joules_per_10k_requests",
             x_title="Throughput (req/s)",
-            y_title="Energy cost (J per 10k requests)",
-            title=f"Energy cost vs. throughput - {WINDOW_LABELS[window]}",
-            subtitle="Bottom-right is better; dashed = Pareto frontier, whiskers = +/-1 SD",
+            y_title="Energy per 10k requests (J)",
+            title=f"Energy cost vs. throughput – {WINDOW_LABELS[window]}",
+            subtitle="Bottom-right is better; dashed = Pareto frontier, whiskers = ± 1 SD",
             y_log=y_log,
             frontier=frontier,
             x_err="rps",
@@ -1757,8 +1776,8 @@ def chart_helpers(
             y="requests_per_joule",
             x_title="Throughput (req/s)",
             y_title="Requests served per joule",
-            title=f"Work per joule vs. throughput - {WINDOW_LABELS[window]}",
-            subtitle="Top-right is better: fast and cheap. Dashed line = Pareto frontier, whiskers = +/-1 SD",
+            title=f"Work per joule vs. throughput – {WINDOW_LABELS[window]}",
+            subtitle="Top-right is better: fast and cheap. Dashed line = Pareto frontier, whiskers = ± 1 SD",
             frontier=frontier,
             x_err="rps",
             y_err="requests_per_joule",
@@ -1778,8 +1797,8 @@ def chart_helpers(
             x="memory_per_pod_mb",
             y="joules_per_10k_requests",
             x_title="Memory per replica (MB)",
-            y_title="Energy per 10,000 requests (J)",
-            title=f"Memory footprint vs. energy cost - {WINDOW_LABELS[window]}",
+            y_title="Energy per 10k requests (J)",
+            title=f"Memory footprint vs. energy cost – {WINDOW_LABELS[window]}",
             subtitle="Bottom-left is better on both. The two axes do not order the targets alike",
             # Memory cannot be negative; without this the padding put the axis at -100 MB.
             x_min=0,
@@ -1793,19 +1812,22 @@ def chart_helpers(
         because wasm-js is an order of magnitude off the rest.
         """
         _, summary = build_efficiency_frame(df_scaling, window)
+        # Latency on x, energy on y - see make_energy_latency_scatter in baseline.py.
         frontier = pareto_frontier(
-            summary, "joules_per_10k_requests", "p95_ms", maximize_x=False, minimize_y=True
+            summary, "p95_ms", "joules_per_10k_requests", maximize_x=False, minimize_y=True
         )
         return _labeled_scatter(
             summary,
-            x="joules_per_10k_requests",
-            y="p95_ms",
-            x_title="Energy cost (J per 10k requests)",
-            y_title="P95 latency (ms) - log scale",
-            title=f"Energy cost vs. responsiveness - {WINDOW_LABELS[window]}",
+            x="p95_ms",
+            y="joules_per_10k_requests",
+            x_title="P95 latency (ms) – log scale",
+            y_title="Energy per 10k requests (J)",
+            title=f"Energy cost vs. responsiveness – {WINDOW_LABELS[window]}",
             subtitle="Bottom-left is better: cheap and responsive. Dashed line = Pareto frontier",
-            y_log=True,
+            x_log=True,
             frontier=frontier,
+            # Slowest target, so its label would have run into the legend.
+            label_offsets={"wasm-js": ("right", -9, -7)},
         )
 
 
@@ -1821,7 +1843,7 @@ def chart_helpers(
             .mark_point(size=45, opacity=0.5, filled=True)
             .encode(
                 x=alt.X("rps:Q", title="Throughput (req/s)", scale=alt.Scale(zero=False, padding=25)),
-                y=alt.Y("joules_per_10k_requests:Q", title="Energy cost (J per 10k requests)", scale=alt.Scale(zero=False, padding=25)),
+                y=alt.Y("joules_per_10k_requests:Q", title="Energy per 10k requests (J)", scale=alt.Scale(zero=False, padding=25)),
                 color=target_color(),
                 tooltip=[
                     alt.Tooltip("target:N", title="Target"),
@@ -1840,7 +1862,7 @@ def chart_helpers(
             width=420,
             height=320,
             title={
-                "text": f"Per-iteration energy/throughput positions - {WINDOW_LABELS[window]}",
+                "text": f"Per-iteration energy/throughput positions – {WINDOW_LABELS[window]}",
                 "subtitle": "One point per run, cross = target mean. Tight clusters mean reproducible results",
             },
         )
@@ -2004,7 +2026,7 @@ def chart_helpers(
             .encode(
                 x=alt.X(
                     "floor_ms:Q",
-                    title="P95 (ms) - log scale",
+                    title="P95 (ms) – log scale",
                     scale=alt.Scale(type="log", nice=False),
                 ),
                 x2=alt.X2("p95_ms:Q"),
@@ -2063,7 +2085,7 @@ def chart_helpers(
                 height=200,
                 title={
                     "text": "Where each target spends its service time",
-                    "subtitle": "Request rate x P95 per route, normalized per target",
+                    "subtitle": "Request rate × P95 per route, normalized per target",
                 },
             )
             # The route names are long; without extra padding the legend is clipped
@@ -2093,12 +2115,12 @@ def chart_helpers(
         # field would resolve differently in each layer.
         route_order = df_variant_routes.sort("baseline_ms", descending=True)["route"].to_list()
         y = alt.Y("route:N", title=None, sort=route_order)
-        x = alt.X("p95_ms:Q", title="P95 (ms) - log scale", scale=alt.Scale(type="log", nice=False))
+        x = alt.X("p95_ms:Q", title="P95 (ms) – log scale", scale=alt.Scale(type="log", nice=False))
 
         connector = (
             alt.Chart(df_variant_routes)
             .mark_rule(strokeWidth=2, opacity=0.45)
-            .encode(y=y, x=alt.X("baseline_ms:Q", title="P95 (ms) - log scale"), x2="variant_ms:Q")
+            .encode(y=y, x=alt.X("baseline_ms:Q", title="P95 (ms) – log scale"), x2="variant_ms:Q")
         )
         points = (
             alt.Chart(long)

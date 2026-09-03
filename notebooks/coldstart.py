@@ -675,7 +675,7 @@ def chart_helpers():
                 height=210,
                 title={
                     "text": "Node energy during the cold start",
-                    "subtitle": "Grey is what an idle node draws anyway; colored is the cost of starting up",
+                    "subtitle": "Gray is what an idle node draws anyway; colored is the cost of starting up",
                 },
             )
         )
@@ -731,7 +731,7 @@ def chart_helpers():
                 # Two lines: as a single string the subtitle set the chart width and
                 # left the plot itself stranded in the left half of the image.
                 "subtitle": [
-                    "Bars = mean of 30 runs with 95% CI. Grey band = 95% noise range",
+                    "Bars = mean of 30 runs with 95% CI. Gray band = 95% noise range",
                     "of a SINGLE measurement, dashed line = resolution limit of the 30-run mean",
                 ],
             },
@@ -748,7 +748,7 @@ def chart_helpers():
                 x=alt.X("excess_mean_j:Q", title="Excess energy (J)", stack="zero"),
                 color=alt.Color(
                     "zone:N",
-                    title="RAPL Zone",
+                    title="RAPL zone",
                     scale=alt.Scale(domain=["package", "dram"], range=["#00758F", "#FC7C00"]),
                 ),
                 tooltip=[
@@ -826,7 +826,7 @@ def chart_helpers():
                 # the caption already explains the triangle, so only the run count
                 # is left here. A subtitle wider than the figure sets the exported
                 # SVG width, which is what decides the printed label size.
-                "subtitle": "Mean of 30 runs +/-1 SD",
+                "subtitle": "Mean of 30 runs ± 1 SD",
             },
         )
 
@@ -883,7 +883,7 @@ def chart_helpers():
             height=234,
             title={
                 "text": "Node power during a cold start",
-                "subtitle": "Mean of 30 runs +/-1 SD; dashed line = idle node with zero application pods",
+                "subtitle": "Mean of 30 runs ± 1 SD; dashed line = idle node with zero application pods",
             },
         )
 

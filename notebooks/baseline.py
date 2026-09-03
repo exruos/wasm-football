@@ -100,12 +100,12 @@ def processing_helpers():
 
     METRIC_LABELS = {
         "rps": ("Throughput", "req/s"),
-        "p95": ("P95 Latency", "ms"),
-        "p99": ("P99 Latency", "ms"),
-        "cpu_usage": ("CPU Usage", "cores"),
+        "p95": ("P95 latency", "ms"),
+        "p99": ("P99 latency", "ms"),
+        "cpu_usage": ("CPU usage", "cores"),
         "memory": ("Memory", "MB"),
         "iterations": ("Completed requests", "requests"),
-        "pod_joules": ("Pod Energy (cumulative)", "J"),
+        "pod_joules": ("Pod energy (cumulative)", "J"),
     }
 
     # Metrics scraped in seconds that the report shows in milliseconds.
@@ -523,7 +523,7 @@ def chart_helpers(
             df_summary,
             "duration_s",
             title="Time to complete 100,000 requests",
-            subtitle="Mean of 10 runs, +/-1 SD. Lower is better",
+            subtitle="Mean of 10 runs, ± 1 SD. Lower is better",
             x_title="Duration (s)",
         )
 
@@ -553,7 +553,7 @@ def chart_helpers(
                 y=alt.Y("target:N", title=None, sort=order),
                 x=alt.X(
                     "latency_ms:Q",
-                    title="Latency (ms)" + (" - log scale" if log_x else ""),
+                    title="Latency (ms)" + (" – log scale" if log_x else ""),
                     # stack=False is REQUIRED on a log axis: Vega-Lite cannot stack
                     # a log scale and silently renders nothing if asked to.
                     stack=False,
@@ -606,7 +606,7 @@ def chart_helpers(
             y=alt.Y("target:N", title="Target", sort=order),
             x=alt.X(
                 "joules:Q",
-                title="Energy per run (J)" + (" - log scale" if x_log else ""),
+                title="Energy per run (J)" + (" – log scale" if x_log else ""),
                 stack=False if grouped else "zero",
                 # domainMin must sit BELOW the smallest value (oci-axum DRAM, 85 J).
                 # On a log axis a bar is drawn from the domain minimum, so the
@@ -617,7 +617,7 @@ def chart_helpers(
                 if x_log
                 else alt.Axis(format=","),
             ),
-            color=alt.Color("domain:N", title="RAPL Zone", scale=ZONE_COLORS),
+            color=alt.Color("domain:N", title="RAPL zone", scale=ZONE_COLORS),
             tooltip=[
                 alt.Tooltip("target:N", title="Target"),
                 alt.Tooltip("domain:N", title="Zone"),
@@ -672,7 +672,7 @@ def chart_helpers(
             .encode(
                 y=alt.Y("target:N", title="Target", sort=order),
                 x=alt.X("joules:Q", title="Share of run energy (%)", stack="normalize", axis=alt.Axis(format="%")),
-                color=alt.Color("domain:N", title="RAPL Zone", scale=ZONE_COLORS),
+                color=alt.Color("domain:N", title="RAPL zone", scale=ZONE_COLORS),
                 order=alt.Order("domain:N", sort="descending"),
                 tooltip=[
                     alt.Tooltip("target:N", title="Target"),
@@ -874,7 +874,7 @@ def chart_helpers(
             ])
 
         y_def = alt.Scale(type="log", nice=False) if log_y else alt.Scale(zero=False)
-        y_title = metric_title(metric) + (" - log scale" if log_y else "")
+        y_title = metric_title(metric) + (" – log scale" if log_y else "")
         x_title = "Run progress (% of requests completed)" if x == "progress" else "Elapsed time (s)"
 
         base = alt.Chart(df_plot)
@@ -897,7 +897,7 @@ def chart_helpers(
             ],
         )
 
-        band_note = "min-max across runs" if band == "minmax" else "mean +/-1 SD across runs"
+        band_note = "min-max across runs" if band == "minmax" else "mean ± 1 SD across runs"
         return (
             (area + line)
             .properties(
@@ -935,7 +935,7 @@ def chart_helpers(
             alt.vconcat(*[charts[m] for m in metrics], spacing=8)
             # y stays independent: panels mix linear and log axes.
             .resolve_scale(color="shared", x="shared", y="independent")
-            .properties(title=f"Baseline run behaviour ({subtitle})")
+            .properties(title=f"Baseline run behavior ({subtitle})")
         )
 
 
@@ -1001,6 +1001,7 @@ def chart_helpers(
         height: int = 320,
         legend: bool = True,
         label_offsets: dict[str, tuple[str, int, int]] | None = None,
+        y_min: float | None = None,
     ) -> alt.Chart:
         """Shared scaffold: labeled point per target, median quadrant guides,
         optional +/-1 SD whiskers and a Pareto frontier line."""
@@ -1009,11 +1010,20 @@ def chart_helpers(
             title=x_title,
             scale=alt.Scale(type="log", nice=False) if x_log else alt.Scale(zero=False, padding=30),
         )
-        y_enc = alt.Y(
-            f"{y}:Q",
-            title=y_title,
-            scale=alt.Scale(type="log", nice=False) if y_log else alt.Scale(zero=False, padding=30),
-        )
+        # `padding` widens the domain by the equivalent of 30 px at each end, which
+        # runs a strictly positive quantity below zero when the smallest value sits
+        # near the origin. It is applied after `domainMin`, so flooring the axis
+        # means giving the domain outright; the headroom padding would have added
+        # at the top is kept as a 15 % margin, measured from the whisker rather
+        # than the marker so the error bars are not clipped.
+        if y_log:
+            y_scale = alt.Scale(type="log", nice=False)
+        elif y_min is not None:
+            top = df_plot[f"{y}_hi"] if f"{y}_hi" in df_plot.columns else df_plot[y]
+            y_scale = alt.Scale(domain=[y_min, float(top.max()) * 1.15], nice=True)
+        else:
+            y_scale = alt.Scale(zero=False, padding=30)
+        y_enc = alt.Y(f"{y}:Q", title=y_title, scale=y_scale)
 
         base = alt.Chart(df_plot)
         layers = [
@@ -1094,11 +1104,11 @@ def chart_helpers(
             x="effective_rps",
             y="joules_per_10k_requests",
             x_title="Effective throughput (req/s)",
-            y_title="Energy cost (J per 10k requests) - log scale",
+            y_title="Energy per 10k requests (J) – log scale",
             title="Energy cost vs. throughput",
             # A subtitle wider than the figure sets the exported SVG width, which
             # is what decides the printed label size.
-            subtitle="Bottom-right is better; dashed = Pareto frontier. +/-1 SD < marker size",
+            subtitle="Bottom-right is better; dashed = Pareto frontier. ± 1 SD < marker size",
             y_log=True,
             frontier=frontier,
             x_err=True,
@@ -1122,36 +1132,40 @@ def chart_helpers(
             df_plot,
             x="duration_s",
             y="mean_power_w",
-            x_title="Time to complete 100k requests (s)",
+            x_title="Time to complete 100,000 requests (s)",
             y_title="Mean power draw (W)",
             title="Speed vs. power draw",
-            subtitle="Energy = time x power, so bottom-left is best. Dashed line = Pareto frontier",
+            subtitle="Energy = time × power, so bottom-left is best. Dashed line = Pareto frontier",
             frontier=frontier,
             x_err=True,
             y_err=True,
+            # Power cannot be negative; without this the padding put the axis at -20 W.
+            y_min=0,
         )
 
 
     def make_energy_latency_scatter(df_summary: pl.DataFrame) -> alt.Chart:
         """Does paying more energy buy lower latency? Bottom-left is best."""
-        frontier = pareto_frontier(df_summary, "total_joules", "p95_ms", False, True)
+        # Latency on x, energy on y: every other trade-off figure in the thesis
+        # puts the cost on the vertical axis, and both captions already read
+        # "energy ... against p95 latency", i.e. y against x.
+        frontier = pareto_frontier(df_summary, "p95_ms", "total_joules", False, True)
         return _labeled_scatter(
             df_summary,
-            x="total_joules",
-            y="p95_ms",
-            x_title="Energy per run (J) - log scale",
-            y_title="P95 latency (ms) - log scale",
+            x="p95_ms",
+            y="total_joules",
+            x_title="P95 latency (ms) – log scale",
+            y_title="Energy per run (J) – log scale",
             title="Energy cost vs. responsiveness",
             subtitle="Bottom-left is better: cheap and fast. Dashed line = Pareto frontier",
             x_log=True,
             y_log=True,
             frontier=frontier,
-            # The two Wasm points sit at the right edge, where the default
-            # upper-right label ran into the legend. Anchoring those two on the
-            # left of their marker keeps both readable.
+            # The two slowest targets sit at the right edge, where a label placed
+            # to the right of the marker would run into the legend.
             label_offsets={
-                "wasm-js": ("right", -9, -7),
                 "wasm-rust": ("right", -9, -7),
+                "oci-node": ("right", -9, -7),
             },
             width=385,
         )
@@ -1164,7 +1178,7 @@ def chart_helpers(
             .mark_point(size=45, opacity=0.5, filled=True)
             .encode(
                 x=alt.X("effective_rps:Q", title="Effective throughput (req/s)", scale=alt.Scale(zero=False, padding=25)),
-                y=alt.Y("total_joules:Q", title="Energy per run (J) - log scale", scale=alt.Scale(type="log", nice=False)),
+                y=alt.Y("total_joules:Q", title="Energy per run (J) – log scale", scale=alt.Scale(type="log", nice=False)),
                 color=target_color(),
                 tooltip=[
                     alt.Tooltip("target:N", title="Target"),
